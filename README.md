@@ -10,7 +10,7 @@
 - 相同文本去重后只请求一次，节省 token
 - 文本按字符数分批、并发请求，失败自动重试 1 次
 - 一键「还原原文」
-- 设置页可配置 API Key / Base URL / 模型 / 目标语言 / 每批字符数 / 并发数
+- 设置页可配置 API Key / Base URL / 模型 / 目标语言 / 每批字符数 / 并发数，左侧表单、右侧参数说明，支持一键获取 DeepSeek 模型列表
 - 快捷键 `Alt+T` 直接翻译当前页
 
 ## 安装方法
@@ -38,7 +38,7 @@
 | --- | --- | --- |
 | API Key | 空 | DeepSeek 密钥，仅保存在本地浏览器 storage |
 | Base URL | `https://api.deepseek.com` | OpenAI 兼容接口地址，请求 `POST {baseUrl}/chat/completions` |
-| 模型 | `deepseek-chat` | DeepSeek 模型名 |
+| 模型 | `deepseek-chat` | DeepSeek 模型名；设置页点「获取模型」自动拉取可用模型列表（可下拉选择或手动输入） |
 | 目标语言 | 简体中文 | 译文语言 |
 | 每批字符数 | 6000 | 每个请求最多携带的源文本字符数（每批最多 500 条） |
 | 并发数 | 3 | 同时进行的请求数量 |

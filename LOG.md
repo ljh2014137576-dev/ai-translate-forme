@@ -28,3 +28,8 @@
 - 新增 scripts/verify-crx.mjs: 按 Chrome 算法独立校验任意 CRX3(crx_id 匹配 + RSA-SHA256 签名)。
 - 交叉验证: 用 crx3 npm 包(独立实现)以同一密钥生成的 CRX 与本 CRX 均通过 verify-crx.mjs(idOk/sigOk 全 true)。
 - 同一 .pem 密钥复用，扩展 ID 保持 fnedaohmonblnoilboadichjfekojngi 不变。
+
+## v0.1.3 — 2026-08-08
+- 设置页改左右布局: 左边表单，右边每个参数的用途说明(dl 卡片，窄屏自动堆叠)。
+- 模型字段改为 input+datalist(可下拉选也可手动输入)，新增「获取模型」按钮: 后台 GET {baseUrl}/models 拉取 DeepSeek 模型列表(新增 GET_MODELS 消息)。
+- e2e(真实 Chromium + mock /models): 右栏 6 项说明、模型列表填充、保存均通过。

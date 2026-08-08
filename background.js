@@ -190,6 +190,31 @@ async function handleTestApi() {
   }
 }
 
+// 获取模型列表：GET {baseUrl}/models（OpenAI 兼容）
+async function handleGetModels() {
+  const cfg = await getConfig();
+  if (!cfg.apiKey) return { ok: false, error: '未配置 API Key，请先保存。' };
+  try {
+    const url = cfg.baseUrl.replace(/\/+$/, '') + '/models';
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), TEST_TIMEOUT_MS);
+    let resp;
+    try {
+      resp = await fetch(url, {
+        headers: { 'Authorization': `Bearer ${cfg.apiKey}`, 'Content-Type': 'application/json' },
+        signal: ctrl.signal
+      });
+    } finally {
+      clearTimeout(timer);
+    }
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const data = await resp.json();
+    const models = Array.isArray(data.data) ? data.data.map((m) => ({ id: m.id })) : [];
+    return { ok: true, models };
+  } catch (e) {
+    return { ok: false, error: e && e.message ? e.message : String(e) };
+  }
+}
 // 消息分发（异步回调前必须 return true 保持通道打开）
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!msg || typeof msg.type !== 'string') return;
@@ -199,6 +224,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         return handleTranslate(msg.segments);
       case 'TEST_API':
         return handleTestApi();
+      case 'GET_MODELS':
+        return handleGetModels();
       case 'GET_CONFIG':
         return getConfig();
       case 'SET_CONFIG':

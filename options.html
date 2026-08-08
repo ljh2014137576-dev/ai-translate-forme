@@ -6,33 +6,50 @@
   <link rel="stylesheet" href="options.css">
 </head>
 <body>
-  <div class="container">
-    <h1>AI 网页翻译设置</h1>
-    <form id="form">
-      <label>DeepSeek API Key
-        <input type="password" id="apiKey" placeholder="sk-...（仅保存在本地浏览器）" autocomplete="off">
-      </label>
-      <label>Base URL
-        <input type="text" id="baseUrl" placeholder="https://api.deepseek.com">
-      </label>
-      <label>模型
-        <input type="text" id="model" placeholder="deepseek-chat">
-      </label>
-      <label>目标语言
-        <input type="text" id="targetLang" placeholder="简体中文">
-      </label>
-      <label>每批字符数
-        <input type="number" id="chunkChars" min="100" max="20000" step="100" placeholder="6000">
-      </label>
-      <label>并发数
-        <input type="number" id="concurrency" min="1" max="10" step="1" placeholder="3">
-      </label>
-      <div class="actions">
-        <button type="submit" class="btn primary">保存</button>
-        <button type="button" id="btn-test" class="btn">测试连接</button>
-      </div>
-    </form>
-    <div id="status" class="status"></div>
+  <div class="layout">
+    <div class="left">
+      <h1>AI 网页翻译设置</h1>
+      <form id="form">
+        <label>DeepSeek API Key
+          <input type="password" id="apiKey" placeholder="sk-...（仅保存在本地浏览器）" autocomplete="off">
+        </label>
+        <label>Base URL
+          <input type="text" id="baseUrl" placeholder="https://api.deepseek.com">
+        </label>
+        <label>模型
+          <span class="row">
+            <input type="text" id="model" list="model-list" placeholder="deepseek-chat">
+            <datalist id="model-list"></datalist>
+            <button type="button" id="btn-models" class="btn small">获取模型</button>
+          </span>
+        </label>
+        <label>目标语言
+          <input type="text" id="targetLang" placeholder="简体中文">
+        </label>
+        <label>每批字符数
+          <input type="number" id="chunkChars" min="100" max="20000" step="100" placeholder="6000">
+        </label>
+        <label>并发数
+          <input type="number" id="concurrency" min="1" max="10" step="1" placeholder="3">
+        </label>
+        <div class="actions">
+          <button type="submit" class="btn primary">保存</button>
+          <button type="button" id="btn-test" class="btn">测试连接</button>
+        </div>
+      </form>
+      <div id="status" class="status"></div>
+    </div>
+    <aside class="right">
+      <h2>参数说明</h2>
+      <dl>
+        <dt>API Key</dt><dd>DeepSeek 密钥：访问 platform.deepseek.com → API Keys 创建。仅保存在本地浏览器。</dd>
+        <dt>Base URL</dt><dd>接口地址，默认 https://api.deepseek.com 即可；只有用自建代理/中转时才需要改。</dd>
+        <dt>模型</dt><dd>DeepSeek 模型名，默认 deepseek-chat。点「获取模型」自动拉取你账号可用的模型列表，支持下拉选择或手动输入。</dd>
+        <dt>目标语言</dt><dd>网页文字要翻译成的语言，例如：简体中文、English、日本語。</dd>
+        <dt>每批字符数</dt><dd>每个 API 请求携带的源文本字符数。越大请求次数越少但单次更慢；普通页面默认即可。</dd>
+        <dt>并发数</dt><dd>同时发出的请求数量。越大越快但更容易触发限流，默认 3 已平衡速度与稳定。</dd>
+      </dl>
+    </aside>
   </div>
   <script src="options.js"></script>
 </body>

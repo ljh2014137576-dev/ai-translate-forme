@@ -52,6 +52,29 @@ async function load() {
   $('concurrency').value = cfg.concurrency || 3;
 }
 
+// 获取模型列表并填充 datalist（保留手动输入能力）
+async function fetchModels() {
+  const cfg = collectForm();
+  const err = validate(cfg);
+  if (err) { setStatus(err, true); return; }
+  if (!cfg.apiKey) { setStatus('请先填写 API Key', true); return; }
+  setStatus('获取模型中…');
+  // 先保存当前表单，再让后台用该配置请求
+  await chrome.runtime.sendMessage({ type: 'SET_CONFIG', config: cfg });
+  await ensureHostPermission(cfg.baseUrl);
+  const res = await chrome.runtime.sendMessage({ type: 'GET_MODELS' });
+  if (!res || !res.ok) { setStatus('获取模型失败：' + ((res && res.error) || '未知错误'), true); return; }
+  const list = $('model-list');
+  list.innerHTML = '';
+  for (const m of (res.models || [])) {
+    const opt = document.createElement('option');
+    opt.value = m.id;
+    list.appendChild(opt);
+  }
+  if (res.models && res.models.length) setStatus('已获取 ' + res.models.length + ' 个模型，输入框下拉可选', false, true);
+  else setStatus('未返回任何模型', true);
+}
+
 $('form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const cfg = collectForm();
@@ -75,5 +98,7 @@ $('btn-test').addEventListener('click', async () => {
   if (res && res.ok) setStatus('连接成功 ✔', false, true);
   else setStatus('连接失败：' + ((res && res.error) || '未知错误'), true);
 });
+
+$('btn-models').addEventListener('click', fetchModels);
 
 load();
