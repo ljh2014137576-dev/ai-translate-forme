@@ -232,6 +232,7 @@
   /* ======================= 对外接口 ======================= */
   // 幂等启动：重复调用不会重复创建 rAF
   window.__sculptureStart = start;
+  window.__sculptureStop = stop;
 
   // 脚本位于 </body> 前，DOM 已就绪，加载后立即自启动
   if (document.readyState === 'loading') {

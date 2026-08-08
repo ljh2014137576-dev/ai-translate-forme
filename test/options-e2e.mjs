@@ -36,7 +36,7 @@ async function main() {
   await page.fill("#baseUrl", "http://127.0.0.1:8790");
   await page.click("#btn-models");
   await page.waitForTimeout(1000);
-  const models = await page.locator("#model-list option").evaluateAll((els) => els.map((e) => e.value));
+  const models = await page.locator("#model option").evaluateAll((els) => els.map((e) => e.value));
   nodeRepl.write("models: " + JSON.stringify(models) + "\n");
   nodeRepl.write("models status: " + (await page.textContent("#status")) + "\n");
 

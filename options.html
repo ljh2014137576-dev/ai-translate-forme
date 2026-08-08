@@ -54,11 +54,11 @@
             <div class="field">
               <label for="model">模型</label>
               <span class="row">
-                <input type="text" id="model" list="model-list" placeholder="deepseek-chat" autocomplete="off">
-                <datalist id="model-list"></datalist>
+                <select id="model"></select>
                 <button type="button" id="btn-models" class="btn small">获取模型</button>
               </span>
-              <p class="hint">切换服务商时自动填充内置模型，支持下拉选择或手动输入；点击「获取模型」拉取账号可用模型。</p>
+              <input type="text" id="modelCustom" placeholder="输入自定义模型名，如 deepseek-chat" autocomplete="off" style="display:none;margin-top:8px">
+              <p class="hint">切换服务商时自动填充内置模型；点击「获取模型」拉取账号可用模型；选择「自定义…」可手动输入模型名。</p>
             </div>
 
             <div class="field">

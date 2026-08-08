@@ -126,7 +126,6 @@ body {
   pointer-events: none;
   transform: translateY(12px);
   transition: opacity .2s ease-out, transform .2s ease-out, visibility 0s linear .2s;
-  will-change: opacity, transform;
 }
 .tab-page.active {
   position: relative;

@@ -11,6 +11,7 @@ let pageCache = {};                                     // { [pageKey]: { finger
 let tokenUsage = { prompt: 0, completion: 0, total: 0, requests: 0 }; // 累计用量
 let tokenHistory = [];                                  // [{ ts, prompt, completion, total, cost? }] 时间序列（ts 毫秒）
 let usdToCny = 7.15;                                    // USD→CNY 汇率（设置页可改）
+let fetchedModels = [];                                 // 获取模型按钮拉取的模型列表（并入下拉，去重）
 
 // —— 多厂商内置清单（name / baseUrl / models / pricing）——
 // 后台暂未实现 GET_PROVIDERS 时使用该内置清单；若后台返回 providers 则优先采用后台数据。
@@ -186,6 +187,14 @@ function normalizePricing(pricing) {
   return Object.keys(map).length ? map : null;
 }
 
+// 当前生效模型：下拉选中项（自定义时取输入框内容）
+function effectiveModel() {
+  const sel = $('model');
+  const v = sel ? sel.value : '';
+  if (v === '__custom__') return ($('modelCustom') ? $('modelCustom').value : '').trim();
+  return v;
+}
+
 // 当前选中的服务商对象（无匹配时返回 null）
 function currentProvider() {
   const id = $('provider').value;
@@ -208,14 +217,27 @@ function fillProviderOptions() {
 
 // 用内置模型填充 datalist#model-list
 function fillModelList(provider) {
-  const list = $('model-list');
-  list.innerHTML = '';
+  const sel = $('model');
+  if (!sel) return;
+  const prev = sel.value;
+  sel.innerHTML = '';
+  const seen = new Set();
   const models = (provider && Array.isArray(provider.models)) ? provider.models : [];
-  for (const m of models) {
+  const add = (id) => {
+    if (!id || seen.has(id)) return;
+    seen.add(id);
     const opt = document.createElement('option');
-    opt.value = m && typeof m === 'object' ? (m.id || m.name || '') : String(m);
-    list.appendChild(opt);
-  }
+    opt.value = id;
+    opt.textContent = id;
+    sel.appendChild(opt);
+  };
+  for (const m of models) add(m && typeof m === 'object' ? (m.id || m.name || '') : String(m));
+  for (const m of fetchedModels) add(m && typeof m === 'object' ? (m.id || m.name || '') : String(m));
+  const custom = document.createElement('option');
+  custom.value = '__custom__';
+  custom.textContent = '自定义模型…';
+  sel.appendChild(custom);
+  if (prev && [...sel.options].some((o) => o.value === prev)) sel.value = prev;
 }
 
 // 查找模型对应的官方定价（精确匹配失败时回退到大小写不敏感匹配）
@@ -238,7 +260,7 @@ function findPricing(provider, modelId) {
 // 把 inputPrice/outputPrice 自动填入匹配模型的官方定价；无匹配时按 clearIfNoMatch 决定是否留空。
 // 返回是否命中定价。
 function applyProviderPricing(provider, clearIfNoMatch) {
-  const price = findPricing(provider, $('model').value.trim());
+  const price = findPricing(provider, effectiveModel());
   if (price) {
     const rate = usdToCny > 0 ? usdToCny : 7.15;
     $('inputPrice').value = (price.input * rate).toFixed(4).replace(/0+$/, '').replace(/\.$/, '');
@@ -279,7 +301,15 @@ function fillForm(cfg) {
   $('provider').value = cfg.provider || 'deepseek';
   $('apiKey').value = cfg.apiKey || '';
   $('baseUrl').value = cfg.baseUrl || 'https://api.deepseek.com';
-  $('model').value = cfg.model || 'deepseek-chat';
+  const savedModel = cfg.model || 'deepseek-chat';
+  const modelSel = $('model');
+  if (modelSel && [...modelSel.options].some((o) => o.value === savedModel)) {
+    modelSel.value = savedModel;
+  } else {
+    modelSel.value = '__custom__';
+    const customEl = $('modelCustom');
+    if (customEl) { customEl.value = savedModel; customEl.style.display = ''; }
+  }
   $('targetLang').value = cfg.targetLang || '简体中文';
   $('nativeLang').value = cfg.nativeLang || '简体中文';
   $('chunkChars').value = cfg.chunkChars || 6000;
@@ -306,7 +336,7 @@ function collectForm() {
     provider: $('provider').value || 'deepseek',
     apiKey: $('apiKey').value.trim(),
     baseUrl: $('baseUrl').value.trim(),
-    model: $('model').value.trim(),
+    model: effectiveModel(),
     targetLang: $('targetLang').value.trim(),
     nativeLang: $('nativeLang').value.trim() || '简体中文',
     chunkChars: parseInt($('chunkChars').value, 10),
@@ -358,19 +388,15 @@ async function fetchModels() {
     await ensureHostPermission(cfg.baseUrl);
     const res = await sendMsg({ type: 'GET_MODELS' });
     if (!res || !res.ok) { setStatus('获取模型失败：' + ((res && res.error) || '未知错误'), true); return; }
-    const list = $('model-list');
-    list.innerHTML = '';
-    for (const m of (res.models || [])) {
-      const opt = document.createElement('option');
-      opt.value = m.id;
-      list.appendChild(opt);
-    }
-    if (res.models && res.models.length) setStatus('已获取 ' + res.models.length + ' 个模型，输入框下拉可选', false, true);
+    fetchedModels = res.models || [];
+    const cur = currentProvider();
+    fillModelList(cur);
+    if (fetchedModels.length) setStatus('已获取 ' + fetchedModels.length + ' 个模型，下拉可选择', false, true);
     else setStatus('未返回任何模型', true);
   } else {
     if (p && Array.isArray(p.models) && p.models.length) {
       fillModelList(p);
-      setStatus('已显示 ' + (p.name || p.id) + ' 内置模型列表，输入框下拉可选', false, true);
+      setStatus('已显示 ' + (p.name || p.id) + ' 内置模型列表，下拉可选择', false, true);
     } else {
       setStatus('该服务商暂无内置模型列表', true);
     }
@@ -414,16 +440,32 @@ $('provider').addEventListener('change', async () => {
   setStatus('已切换服务商：' + (p.name || p.id) + '，已填充默认 Base URL 与内置模型', false, true);
 });
 
-// 手动输入/选择模型：若命中内置官方定价则自动填入单价（不命中不清空，保留手动修改）
-let modelPriceTimer = null;
-$('model').addEventListener('input', () => {
-  clearTimeout(modelPriceTimer);
-  modelPriceTimer = setTimeout(async () => {
-    const p = currentProvider();
-    if (!p) return;
-    if (applyProviderPricing(p, false)) await savePrices();
-  }, 300);
+// 选择模型：命中内置官方定价则自动填入单价；选择「自定义…」显示手动输入框
+$('model').addEventListener('change', () => {
+  const sel = $('model');
+  const customEl = $('modelCustom');
+  if (sel.value === '__custom__') {
+    if (customEl) { customEl.style.display = ''; customEl.focus(); }
+    return;
+  }
+  if (customEl) customEl.style.display = 'none';
+  const p = currentProvider();
+  if (!p) return;
+  if (applyProviderPricing(p, false)) savePrices();
 });
+// 自定义模型输入：命中内置官方定价则自动填入单价
+let customPriceTimer = null;
+const customInputEl = $('modelCustom');
+if (customInputEl) {
+  customInputEl.addEventListener('input', () => {
+    clearTimeout(customPriceTimer);
+    customPriceTimer = setTimeout(async () => {
+      const p = currentProvider();
+      if (!p) return;
+      if (applyProviderPricing(p, false)) await savePrices();
+    }, 300);
+  });
+}
 
 // —— 用量面板 ——
 
@@ -846,11 +888,11 @@ async function init() {
   providers = await loadProviders();
   fillProviderOptions();
   const state = await sendMsg({ type: 'GET_STATE' });
-  if (state && state.config) fillForm(state.config);
   applyMirrors(state);
-  // 仅填充当前服务商的内置模型列表，不覆盖已保存的 baseUrl / 单价
+  // 先填充模型下拉，再回填表单，确保已保存模型能正确选中（含自定义）
   const p = currentProvider();
   if (p) fillModelList(p);
+  if (state && state.config) fillForm(state.config);
   renderUsageSummary();
   drawUsageChart();
   renderSiteSettings();
