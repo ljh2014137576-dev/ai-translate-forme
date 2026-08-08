@@ -6,13 +6,6 @@
   <link rel="stylesheet" href="popup.css">
 </head>
 <body>
-  <!-- 背景粒子（纯 CSS 装饰） -->
-  <div class="ark-particles" aria-hidden="true">
-    <i class="dot dot-1"></i>
-    <i class="dot dot-2"></i>
-    <i class="dot dot-3"></i>
-  </div>
-
   <div class="popup">
     <div class="title">AI 网页翻译</div>
     <div class="subtitle">DeepSeek 驱动</div>
@@ -26,7 +19,7 @@
     <button id="btn-translate" class="btn primary">翻译此页</button>
     <button id="btn-restore" class="btn">还原原文</button>
 
-    <div id="status" class="status"></div>
+    <div id="status" class="status" role="status"></div>
     <a id="btn-options" class="link" href="#">打开设置</a>
     <div id="token-usage" class="token-usage">已用 tokens: --</div>
   </div>

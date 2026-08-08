@@ -1,8 +1,21 @@
-// AI 网页翻译 (DeepSeek) — 后台 Service Worker
-// 职责：配置读写、分批 + 并发调用 DeepSeek（OpenAI 兼容接口）、汇总译文、页面缓存、用量统计
+// AI 网页翻译 — 后台 Service Worker
+// 职责：配置读写、多厂商适配（DeepSeek/OpenAI/Claude/Gemini/通义/Kimi/智谱/豆包）、分批 + 并发调用、汇总译文、页面缓存、用量统计
+
+// 内置厂商表：provider id → 名称/接口地址/协议格式/可用模型/价格（每百万 token USD 近似官方价，可在设置修改）
+const PROVIDERS = {
+  deepseek: { name: 'DeepSeek', baseUrl: 'https://api.deepseek.com', format: 'openai', models: ['deepseek-chat','deepseek-reasoner'], pricing: { 'deepseek-chat': { input: 0.27, output: 1.10 }, 'deepseek-reasoner': { input: 0.55, output: 2.19 } } },
+  openai: { name: 'OpenAI', baseUrl: 'https://api.openai.com', format: 'openai', models: ['gpt-5','gpt-4o','gpt-4o-mini','gpt-4.1','gpt-4.1-mini','o4-mini'], pricing: { 'gpt-5': { input: 1.25, output: 10 }, 'gpt-4o': { input: 2.5, output: 10 }, 'gpt-4o-mini': { input: 0.15, output: 0.6 }, 'gpt-4.1': { input: 2, output: 8 }, 'gpt-4.1-mini': { input: 0.4, output: 1.6 }, 'o4-mini': { input: 1.1, output: 4.4 } } },
+  anthropic: { name: 'Anthropic Claude', baseUrl: 'https://api.anthropic.com', format: 'anthropic', models: ['claude-sonnet-4-5','claude-opus-4','claude-3-7-sonnet','claude-3-5-haiku'], pricing: { 'claude-sonnet-4-5': { input: 3, output: 15 }, 'claude-opus-4': { input: 15, output: 75 }, 'claude-3-7-sonnet': { input: 3, output: 15 }, 'claude-3-5-haiku': { input: 0.8, output: 4 } } },
+  gemini: { name: 'Google Gemini', baseUrl: 'https://generativelanguage.googleapis.com', format: 'gemini', models: ['gemini-2.5-pro','gemini-2.5-flash','gemini-2.0-flash'], pricing: { 'gemini-2.5-pro': { input: 1.25, output: 10 }, 'gemini-2.5-flash': { input: 0.3, output: 2.5 }, 'gemini-2.0-flash': { input: 0.1, output: 0.4 } } },
+  qwen: { name: '通义千问', baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode', format: 'openai', models: ['qwen-max','qwen-plus','qwen-turbo'], pricing: { 'qwen-max': { input: 2.4, output: 9.6 }, 'qwen-plus': { input: 0.4, output: 1.2 }, 'qwen-turbo': { input: 0.1, output: 0.3 } } },
+  moonshot: { name: 'Kimi (Moonshot)', baseUrl: 'https://api.moonshot.cn', format: 'openai', models: ['kimi-k2-0711-preview','moonshot-v1-32k','moonshot-v1-8k'], pricing: { 'kimi-k2-0711-preview': { input: 0.6, output: 2.5 }, 'moonshot-v1-32k': { input: 0.6, output: 2.5 }, 'moonshot-v1-8k': { input: 0.6, output: 2.5 } } },
+  zhipu: { name: '智谱 GLM', baseUrl: 'https://open.bigmodel.cn/api/paas/v4', format: 'openai', models: ['glm-4-plus','glm-4-air','glm-4-flash'], pricing: { 'glm-4-plus': { input: 0.5, output: 2 }, 'glm-4-air': { input: 0.05, output: 0.2 }, 'glm-4-flash': { input: 0.0, output: 0.0 } } },
+  doubao: { name: '豆包 (火山方舟)', baseUrl: 'https://ark.cn-beijing.volces.com/api/v3', format: 'openai', models: ['doubao-pro-32k','doubao-lite-32k'], pricing: { 'doubao-pro-32k': { input: 0.3, output: 0.6 }, 'doubao-lite-32k': { input: 0.15, output: 0.3 } } }
+};
 
 const DEFAULT_CONFIG = {
   apiKey: '',
+  provider: 'deepseek',       // 厂商 id（deepseek | openai | anthropic | gemini | qwen | moonshot | zhipu | doubao）
   baseUrl: 'https://api.deepseek.com',
   model: 'deepseek-chat',
   targetLang: '简体中文',
@@ -59,54 +72,141 @@ async function addTokenUsage(usage) {
     total: (cur.total || 0) + (usage.total || 0),
     requests: (cur.requests || 0) + 1
   };
-  // 追加一条用量记录到 tokenHistory，仅保留最近 1000 条
+  // 追加一条用量记录到 tokenHistory，仅保留最近 1000 条；cost 为该次请求实际费用 USD（无则 null）
   const history = (stored.tokenHistory || []).concat({
     ts: Date.now(),
     prompt: usage.prompt || 0,
     completion: usage.completion || 0,
-    total: usage.total || 0
+    total: usage.total || 0,
+    cost: usage.cost != null ? usage.cost : null
   }).slice(-1000);
   await chrome.storage.local.set({ tokenUsage: next, tokenHistory: history });
 }
 
-// 调用 DeepSeek（OpenAI 兼容 POST {baseUrl}/chat/completions），成功后累加用量
+// 解析厂商接口地址：优先用户自定义 baseUrl（非空且非内置默认），否则取 PROVIDERS 内置默认
+function resolveBaseUrl(cfg, provider) {
+  const custom = cfg && cfg.baseUrl && cfg.baseUrl.trim();
+  if (custom && custom !== DEFAULT_CONFIG.baseUrl) return custom.replace(/\/+$/, '');
+  return provider.baseUrl;
+}
+
+// 直读响应 usage 中的费用字段（cost/usd_cost/total_cost/price/amount），取第一个数字；无则返回 null
+function readUsageCost(u) {
+  if (!u || typeof u !== 'object') return null;
+  const keys = ['cost', 'usd_cost', 'total_cost', 'price', 'amount'];
+  for (const k of keys) {
+    const v = u[k];
+    if (typeof v === 'number' && isFinite(v)) return v;
+    if (typeof v === 'string' && v.trim() !== '' && isFinite(Number(v))) return Number(v);
+  }
+  return null;
+}
+
+// 按厂商 format 调用翻译接口（openai / anthropic / gemini），成功后累加用量
 async function fetchTranslations(chunk, cfg) {
-  const url = cfg.baseUrl.replace(/\/+$/, '') + '/chat/completions';
-  const body = {
-    model: cfg.model,
-    messages: [
-      { role: 'system', content: buildSystemPrompt(cfg.targetLang) },
-      { role: 'user', content: JSON.stringify(chunk.map((s) => ({ id: s.id, text: s.text }))) }
-    ],
-    temperature: 0.3,
-    max_tokens: 4096,
-    response_format: { type: 'json_object' }
-  };
+  const provider = PROVIDERS[cfg.provider] || PROVIDERS.deepseek; // 厂商缺省 deepseek
+  const baseUrl = resolveBaseUrl(cfg, provider);
+  const segments = chunk.map((s) => ({ id: s.id, text: s.text })); // 发送给模型的段列表
+  const systemPrompt = buildSystemPrompt(cfg.targetLang);
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS);
   try {
-    const resp = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${cfg.apiKey}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(body),
-      signal: ctrl.signal
-    });
-    if (!resp.ok) throw new Error(`HTTP ${resp.status} ${(await resp.text()).slice(0, 200)}`);
-    const data = await resp.json();
-    const content = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
-    if (!content) throw new Error('响应缺少 choices[0].message.content');
+    let data;
+    let content;
+    let u;
+    let usage;
+    if (provider.format === 'anthropic') {
+      // Anthropic Messages API：POST {baseUrl}/v1/messages
+      const url = baseUrl + '/v1/messages';
+      const body = {
+        model: cfg.model,
+        max_tokens: 4096,
+        system: systemPrompt,
+        messages: [{ role: 'user', content: JSON.stringify(segments) }]
+      };
+      const resp = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'x-api-key': cfg.apiKey,
+          'anthropic-version': '2023-06-01',
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(body),
+        signal: ctrl.signal
+      });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status} ${(await resp.text()).slice(0, 200)}`);
+      data = await resp.json();
+      content = data.content && data.content[0] ? data.content[0].text : '';
+      if (!content) throw new Error('响应缺少 content[0].text');
+      u = data.usage && typeof data.usage === 'object' ? data.usage : {};
+      usage = {
+        prompt: u.input_tokens || 0,
+        completion: u.output_tokens || 0,
+        total: (u.input_tokens || 0) + (u.output_tokens || 0)
+      };
+    } else if (provider.format === 'gemini') {
+      // Gemini generateContent API：POST {baseUrl}/v1beta/models/{model}:generateContent?key=...
+      const url = `${baseUrl}/v1beta/models/${encodeURIComponent(cfg.model)}:generateContent?key=${encodeURIComponent(cfg.apiKey)}`;
+      const body = {
+        systemInstruction: { parts: [{ text: systemPrompt }] },
+        contents: [{ role: 'user', parts: [{ text: JSON.stringify(segments) }] }]
+      };
+      const resp = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: ctrl.signal
+      });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status} ${(await resp.text()).slice(0, 200)}`);
+      data = await resp.json();
+      const parts = data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts;
+      if (!Array.isArray(parts) || !parts.length) throw new Error('响应缺少 candidates[0].content.parts');
+      content = parts.map((p) => (p && p.text != null ? p.text : '')).join('');
+      u = (data && data.usageMetadata) || {}; // Gemini 返回 usageMetadata
+      usage = {
+        prompt: u.promptTokenCount || 0,
+        completion: u.candidatesTokenCount || 0,
+        total: u.totalTokenCount || 0
+      };
+    } else {
+      // openai 格式（DeepSeek/OpenAI/通义/Kimi/智谱/豆包 等兼容接口）：POST {baseUrl}/chat/completions
+      const url = baseUrl + '/chat/completions';
+      const body = {
+        model: cfg.model,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: JSON.stringify(segments) }
+        ],
+        temperature: 0.3,
+        max_tokens: 4096,
+        response_format: { type: 'json_object' }
+      };
+      const resp = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${cfg.apiKey}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(body),
+        signal: ctrl.signal
+      });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status} ${(await resp.text()).slice(0, 200)}`);
+      data = await resp.json();
+      content = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
+      if (!content) throw new Error('响应缺少 choices[0].message.content');
+      u = data.usage && typeof data.usage === 'object' ? data.usage : {};
+      // OpenAI/DeepSeek 返回 *_tokens 字段，兼容自定义代理可能返回的 prompt/completion/total
+      usage = {
+        prompt: u.prompt_tokens || u.prompt || 0,
+        completion: u.completion_tokens || u.completion || 0,
+        total: u.total_tokens || u.total || 0
+      };
+    }
     const translations = parseTranslations(content, chunk);
-    const u = data.usage && typeof data.usage === 'object' ? data.usage : {};
-    // OpenAI/DeepSeek 返回 *_tokens 字段，兼容自定义代理可能返回的 prompt/completion/total
-    const usage = {
-      prompt: u.prompt_tokens || u.prompt || 0,
-      completion: u.completion_tokens || u.completion || 0,
-      total: u.total_tokens || u.total || 0
-    };
-    if (data.usage) await addTokenUsage(usage); // 仅当返回 usage 时累计
+    // cost 直读：usage 含 cost/usd_cost/total_cost/price/amount 时取第一个数字作为本次费用 USD
+    const cost = readUsageCost(u);
+    if (cost != null) usage.cost = cost;
+    if (data && (data.usage || data.usageMetadata)) await addTokenUsage(usage); // 兼容 openai/anthropic 的 usage 与 gemini 的 usageMetadata
     return { translations, usage };
   } finally {
     clearTimeout(timer);
@@ -274,46 +374,76 @@ async function handleTranslate(msg, sender) {
   };
 }
 
-// 测试连接：向 DeepSeek 发送固定文本（30s 超时）
+// 测试连接：按厂商 format 发送最小请求（30s 超时）
 async function handleTestApi() {
   const cfg = await getConfig();
+  const provider = PROVIDERS[cfg.provider] || PROVIDERS.deepseek;
   if (!cfg.apiKey) return { ok: false, error: '未配置 API Key，请先保存。' };
   try {
-    const url = cfg.baseUrl.replace(/\/+$/, '') + '/chat/completions';
-    const body = {
-      model: cfg.model,
-      messages: [{ role: 'user', content: 'Hello world' }],
-      temperature: 0.3,
-      max_tokens: 32
-    };
+    const baseUrl = resolveBaseUrl(cfg, provider);
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), TEST_TIMEOUT_MS);
     let resp;
     try {
-      resp = await fetch(url, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${cfg.apiKey}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-        signal: ctrl.signal
-      });
+      if (provider.format === 'anthropic') {
+        // Anthropic：POST {baseUrl}/v1/messages，单条 Hello world
+        resp = await fetch(baseUrl + '/v1/messages', {
+          method: 'POST',
+          headers: {
+            'x-api-key': cfg.apiKey,
+            'anthropic-version': '2023-06-01',
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ model: cfg.model, max_tokens: 32, messages: [{ role: 'user', content: 'Hello world' }] }),
+          signal: ctrl.signal
+        });
+      } else if (provider.format === 'gemini') {
+        // Gemini：POST {baseUrl}/v1beta/models/{model}:generateContent?key=...，单条 Hello world
+        resp = await fetch(`${baseUrl}/v1beta/models/${encodeURIComponent(cfg.model)}:generateContent?key=${encodeURIComponent(cfg.apiKey)}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: 'Hello world' }] }] }),
+          signal: ctrl.signal
+        });
+      } else {
+        // openai 格式（DeepSeek/OpenAI/通义/Kimi/智谱/豆包 等兼容接口）：现有逻辑
+        resp = await fetch(baseUrl + '/chat/completions', {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${cfg.apiKey}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ model: cfg.model, messages: [{ role: 'user', content: 'Hello world' }], temperature: 0.3, max_tokens: 32 }),
+          signal: ctrl.signal
+        });
+      }
     } finally {
       clearTimeout(timer);
     }
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     const data = await resp.json();
-    if (!data.choices || !data.choices[0] || !data.choices[0].message) throw new Error('响应格式不正确');
+    // 按格式校验最小响应
+    if (provider.format === 'anthropic') {
+      if (!data.content || !data.content[0] || !data.content[0].text) throw new Error('响应格式不正确');
+    } else if (provider.format === 'gemini') {
+      if (!data.candidates || !data.candidates[0] || !data.candidates[0].content) throw new Error('响应格式不正确');
+    } else {
+      if (!data.choices || !data.choices[0] || !data.choices[0].message) throw new Error('响应格式不正确');
+    }
     return { ok: true };
   } catch (e) {
     return { ok: false, error: e && e.message ? e.message : String(e) };
   }
 }
 
-// 获取模型列表：GET {baseUrl}/models（OpenAI 兼容，30s 超时）
+// 获取模型列表：openai 格式 GET {baseUrl}/models；anthropic/gemini 直接返回内置模型表
 async function handleGetModels() {
   const cfg = await getConfig();
+  const provider = PROVIDERS[cfg.provider] || PROVIDERS.deepseek;
+  // anthropic / gemini 无公开 /models 接口：返回内置模型表
+  if (provider.format === 'anthropic' || provider.format === 'gemini') {
+    return { ok: true, models: provider.models, builtin: true };
+  }
   if (!cfg.apiKey) return { ok: false, error: '未配置 API Key，请先保存。' };
   try {
-    const url = cfg.baseUrl.replace(/\/+$/, '') + '/models';
+    const url = resolveBaseUrl(cfg, provider) + '/models';
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), TEST_TIMEOUT_MS);
     let resp;
@@ -332,6 +462,11 @@ async function handleGetModels() {
   } catch (e) {
     return { ok: false, error: e && e.message ? e.message : String(e) };
   }
+}
+
+// 返回内置厂商表（含 name/baseUrl/format/models/pricing）
+async function handleGetProviders() {
+  return { ok: true, providers: PROVIDERS };
 }
 
 // —— 缓存 / 站点 / 用量相关消息处理 ——
@@ -490,6 +625,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         return handleResetTokenUsage();
       case 'TEST_API':
         return handleTestApi();
+      case 'GET_PROVIDERS':
+        return handleGetProviders();
       case 'GET_MODELS':
         return handleGetModels();
       case 'GET_CONFIG':

@@ -9,7 +9,115 @@ const statusEl = $('status');
 let siteSettings = {};                                  // { [host]: { autoApply, keepCache } }
 let pageCache = {};                                     // { [pageKey]: { fingerprint, url, title, segments, translations, ts } }
 let tokenUsage = { prompt: 0, completion: 0, total: 0, requests: 0 }; // 累计用量
-let tokenHistory = [];                                  // [{ ts, prompt, completion, total }] 时间序列（ts 毫秒）
+let tokenHistory = [];                                  // [{ ts, prompt, completion, total, cost? }] 时间序列（ts 毫秒）
+
+// —— 多厂商内置清单（name / baseUrl / models / pricing）——
+// 后台暂未实现 GET_PROVIDERS 时使用该内置清单；若后台返回 providers 则优先采用后台数据。
+// pricing 为 { 模型名: { input, output } }，单价为每百万 token 的 USD 官方价。
+const PROVIDERS = [
+  {
+    id: 'deepseek',
+    name: 'DeepSeek（深度求索）',
+    baseUrl: 'https://api.deepseek.com',
+    models: ['deepseek-chat', 'deepseek-reasoner'],
+    pricing: {
+      'deepseek-chat': { input: 0.27, output: 1.10 },
+      'deepseek-reasoner': { input: 0.55, output: 2.19 }
+    }
+  },
+  {
+    id: 'openai',
+    name: 'OpenAI',
+    baseUrl: 'https://api.openai.com/v1',
+    models: ['gpt-4o', 'gpt-4o-mini', 'gpt-4.1', 'gpt-4.1-mini', 'gpt-4.1-nano', 'o3-mini'],
+    pricing: {
+      'gpt-4o': { input: 2.50, output: 10.00 },
+      'gpt-4o-mini': { input: 0.15, output: 0.60 },
+      'gpt-4.1': { input: 2.00, output: 8.00 },
+      'gpt-4.1-mini': { input: 0.40, output: 1.60 },
+      'gpt-4.1-nano': { input: 0.10, output: 0.40 },
+      'o3-mini': { input: 1.10, output: 4.40 }
+    }
+  },
+  {
+    id: 'anthropic',
+    name: 'Anthropic Claude',
+    baseUrl: 'https://api.anthropic.com/v1',
+    models: ['claude-3-7-sonnet-latest', 'claude-3-5-sonnet-latest', 'claude-3-5-haiku-latest', 'claude-3-haiku'],
+    pricing: {
+      'claude-3-7-sonnet-latest': { input: 3.00, output: 15.00 },
+      'claude-3-5-sonnet-latest': { input: 3.00, output: 15.00 },
+      'claude-3-5-haiku-latest': { input: 0.80, output: 4.00 },
+      'claude-3-haiku': { input: 0.25, output: 1.25 }
+    }
+  },
+  {
+    id: 'gemini',
+    name: 'Google Gemini',
+    baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
+    models: ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-2.0-flash-lite'],
+    pricing: {
+      'gemini-2.5-pro': { input: 1.25, output: 10.00 },
+      'gemini-2.5-flash': { input: 0.30, output: 2.50 },
+      'gemini-2.0-flash': { input: 0.10, output: 0.40 },
+      'gemini-2.0-flash-lite': { input: 0.075, output: 0.30 }
+    }
+  },
+  {
+    id: 'qwen',
+    name: '通义千问 Qwen（阿里云）',
+    baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    models: ['qwen-max', 'qwen-plus', 'qwen-turbo', 'qwen-long'],
+    pricing: {
+      'qwen-max': { input: 2.40, output: 9.60 },
+      'qwen-plus': { input: 0.40, output: 1.20 },
+      'qwen-turbo': { input: 0.30, output: 0.60 },
+      'qwen-long': { input: 0.50, output: 2.00 }
+    }
+  },
+  {
+    id: 'moonshot',
+    name: 'Moonshot Kimi（月之暗面）',
+    baseUrl: 'https://api.moonshot.cn/v1',
+    models: ['kimi-k2', 'kimi-k2-turbo-preview', 'moonshot-v1-8k', 'moonshot-v1-32k', 'moonshot-v1-128k'],
+    pricing: {
+      'kimi-k2': { input: 0.60, output: 2.50 },
+      'kimi-k2-turbo-preview': { input: 0.60, output: 2.50 },
+      'moonshot-v1-8k': { input: 0.60, output: 2.00 },
+      'moonshot-v1-32k': { input: 1.20, output: 4.00 },
+      'moonshot-v1-128k': { input: 6.00, output: 20.00 }
+    }
+  },
+  {
+    id: 'zhipu',
+    name: '智谱 GLM（智谱AI）',
+    baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
+    models: ['glm-4-plus', 'glm-4-air', 'glm-4-flash', 'glm-4-long'],
+    pricing: {
+      'glm-4-plus': { input: 0.70, output: 0.70 },
+      'glm-4-air': { input: 0.20, output: 0.20 },
+      'glm-4-flash': { input: 0.10, output: 0.10 },
+      'glm-4-long': { input: 0.20, output: 0.20 }
+    }
+  },
+  {
+    id: 'doubao',
+    name: '豆包 Doubao（字节跳动）',
+    baseUrl: 'https://ark.cn-beijing.volces.com/api/v3',
+    models: ['doubao-pro-32k', 'doubao-pro-128k', 'doubao-lite-32k', 'doubao-lite-128k'],
+    pricing: {
+      'doubao-pro-32k': { input: 0.11, output: 0.28 },
+      'doubao-pro-128k': { input: 0.11, output: 0.28 },
+      'doubao-lite-32k': { input: 0.04, output: 0.08 },
+      'doubao-lite-128k': { input: 0.04, output: 0.08 }
+    }
+  }
+];
+
+// 非 OpenAI 兼容（/models 接口不通用）的服务商 id：点击「获取模型」时显示内置列表
+const NON_OPENAI_COMPAT = new Set(['anthropic', 'gemini']);
+
+let providers = [];                                     // 当前生效的厂商清单（GET_PROVIDERS 优先，否则内置）
 
 // —— 基础工具 ——
 
@@ -46,6 +154,101 @@ function formatDateYmd(ts) {
   return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
 }
 
+// —— 多厂商支持 ——
+
+// 通过 GET_PROVIDERS 获取厂商清单；后台未实现/返回空时回退到内置 PROVIDERS
+async function loadProviders() {
+  const res = await sendMsg({ type: 'GET_PROVIDERS' });
+  const list = res && Array.isArray(res.providers) ? res.providers : (Array.isArray(res) ? res : null);
+  if (list && list.length) {
+    return list.map((p) => ({ id: '', name: '', baseUrl: '', models: [], pricing: null, ...p }));
+  }
+  return PROVIDERS;
+}
+
+// 把 pricing 归一化为 { 模型名: { input, output } } 映射（兼容数组与对象两种形态）
+function normalizePricing(pricing) {
+  if (!pricing || typeof pricing !== 'object') return null;
+  const map = {};
+  if (Array.isArray(pricing)) {
+    for (const p of pricing) {
+      if (p && p.model) map[p.model] = { input: Number(p.input), output: Number(p.output) };
+    }
+  } else {
+    for (const key of Object.keys(pricing)) {
+      const v = pricing[key];
+      if (v && typeof v === 'object' && v.input != null && v.output != null) {
+        map[key] = { input: Number(v.input), output: Number(v.output) };
+      }
+    }
+  }
+  return Object.keys(map).length ? map : null;
+}
+
+// 当前选中的服务商对象（无匹配时返回 null）
+function currentProvider() {
+  const id = $('provider').value;
+  return providers.find((p) => p.id === id) || null;
+}
+
+// 用厂商清单填充 select#provider（保留已选值）
+function fillProviderOptions() {
+  const sel = $('provider');
+  const prev = sel.value;
+  sel.innerHTML = '';
+  for (const p of providers) {
+    const opt = document.createElement('option');
+    opt.value = p.id;
+    opt.textContent = p.name || p.id;
+    sel.appendChild(opt);
+  }
+  if (prev && providers.some((p) => p.id === prev)) sel.value = prev;
+}
+
+// 用内置模型填充 datalist#model-list
+function fillModelList(provider) {
+  const list = $('model-list');
+  list.innerHTML = '';
+  const models = (provider && Array.isArray(provider.models)) ? provider.models : [];
+  for (const m of models) {
+    const opt = document.createElement('option');
+    opt.value = m && typeof m === 'object' ? (m.id || m.name || '') : String(m);
+    list.appendChild(opt);
+  }
+}
+
+// 查找模型对应的官方定价（精确匹配失败时回退到大小写不敏感匹配）
+function findPricing(provider, modelId) {
+  if (!provider || !modelId) return null;
+  const pricing = normalizePricing(provider.pricing);
+  if (!pricing) return null;
+  const p = pricing[modelId];
+  if (p && isFinite(p.input) && isFinite(p.output)) return p;
+  const lower = String(modelId).toLowerCase();
+  for (const key of Object.keys(pricing)) {
+    if (String(key).toLowerCase() === lower) {
+      const v = pricing[key];
+      if (v && isFinite(v.input) && isFinite(v.output)) return v;
+    }
+  }
+  return null;
+}
+
+// 把 inputPrice/outputPrice 自动填入匹配模型的官方定价；无匹配时按 clearIfNoMatch 决定是否留空。
+// 返回是否命中定价。
+function applyProviderPricing(provider, clearIfNoMatch) {
+  const price = findPricing(provider, $('model').value.trim());
+  if (price) {
+    $('inputPrice').value = price.input;
+    $('outputPrice').value = price.output;
+  } else if (clearIfNoMatch) {
+    $('inputPrice').value = '';
+    $('outputPrice').value = '';
+  }
+  calcCost();
+  return !!price;
+}
+
 // —— tab 切换 ——
 async function switchTab(tab) {
   document.querySelectorAll('.tab').forEach((b) => b.classList.toggle('active', b.dataset.tab === tab));
@@ -68,6 +271,7 @@ function applyMirrors(state) {
 // 用配置填充表单（仅初始化时调用一次）
 function fillForm(cfg) {
   cfg = cfg || {};
+  $('provider').value = cfg.provider || 'deepseek';
   $('apiKey').value = cfg.apiKey || '';
   $('baseUrl').value = cfg.baseUrl || 'https://api.deepseek.com';
   $('model').value = cfg.model || 'deepseek-chat';
@@ -87,11 +291,12 @@ function fillForm(cfg) {
 
 // —— 基础设置 ——
 
-// 收集表单为配置对象（含默认模式与缓存开关）
+// 收集表单为配置对象（含默认模式、缓存开关与服务商）
 function collectForm() {
   const mode = document.querySelector('input[name="defaultMode"]:checked');
   const cacheTtl = parseInt($('cacheTtl').value, 10);
   return {
+    provider: $('provider').value || 'deepseek',
     apiKey: $('apiKey').value.trim(),
     baseUrl: $('baseUrl').value.trim(),
     model: $('model').value.trim(),
@@ -131,25 +336,37 @@ async function ensureHostPermission(baseUrl) {
 }
 
 // 获取模型列表并填充 datalist（保留手动输入能力）
+// openai 类厂商：原行为，拉取 /models；anthropic / gemini 等非兼容厂商：显示内置模型列表
 async function fetchModels() {
   const cfg = collectForm();
   const err = validate(cfg);
   if (err) { setStatus(err, true); return; }
-  if (!cfg.apiKey) { setStatus('请先填写 API Key', true); return; }
-  setStatus('获取模型中…');
-  await sendMsg({ type: 'SET_CONFIG', config: cfg });
-  await ensureHostPermission(cfg.baseUrl);
-  const res = await sendMsg({ type: 'GET_MODELS' });
-  if (!res || !res.ok) { setStatus('获取模型失败：' + ((res && res.error) || '未知错误'), true); return; }
-  const list = $('model-list');
-  list.innerHTML = '';
-  for (const m of (res.models || [])) {
-    const opt = document.createElement('option');
-    opt.value = m.id;
-    list.appendChild(opt);
+  const p = currentProvider();
+  const openaiCompat = !p || !NON_OPENAI_COMPAT.has(p.id);
+  if (openaiCompat) {
+    if (!cfg.apiKey) { setStatus('请先填写 API Key', true); return; }
+    setStatus('获取模型中…');
+    await sendMsg({ type: 'SET_CONFIG', config: cfg });
+    await ensureHostPermission(cfg.baseUrl);
+    const res = await sendMsg({ type: 'GET_MODELS' });
+    if (!res || !res.ok) { setStatus('获取模型失败：' + ((res && res.error) || '未知错误'), true); return; }
+    const list = $('model-list');
+    list.innerHTML = '';
+    for (const m of (res.models || [])) {
+      const opt = document.createElement('option');
+      opt.value = m.id;
+      list.appendChild(opt);
+    }
+    if (res.models && res.models.length) setStatus('已获取 ' + res.models.length + ' 个模型，输入框下拉可选', false, true);
+    else setStatus('未返回任何模型', true);
+  } else {
+    if (p && Array.isArray(p.models) && p.models.length) {
+      fillModelList(p);
+      setStatus('已显示 ' + (p.name || p.id) + ' 内置模型列表，输入框下拉可选', false, true);
+    } else {
+      setStatus('该服务商暂无内置模型列表', true);
+    }
   }
-  if (res.models && res.models.length) setStatus('已获取 ' + res.models.length + ' 个模型，输入框下拉可选', false, true);
-  else setStatus('未返回任何模型', true);
 }
 
 // 保存基础配置（表单提交）
@@ -178,6 +395,28 @@ $('btn-test').addEventListener('click', async () => {
 
 $('btn-models').addEventListener('click', fetchModels);
 
+// 切换服务商：自动填默认 Base URL + 内置模型列表 + 匹配模型的官方定价（无匹配则留空）
+$('provider').addEventListener('change', async () => {
+  const p = currentProvider();
+  if (!p) return;
+  $('baseUrl').value = p.baseUrl || '';
+  fillModelList(p);
+  const matched = applyProviderPricing(p, true);
+  if (matched) await savePrices();
+  setStatus('已切换服务商：' + (p.name || p.id) + '，已填充默认 Base URL 与内置模型', false, true);
+});
+
+// 手动输入/选择模型：若命中内置官方定价则自动填入单价（不命中不清空，保留手动修改）
+let modelPriceTimer = null;
+$('model').addEventListener('input', () => {
+  clearTimeout(modelPriceTimer);
+  modelPriceTimer = setTimeout(async () => {
+    const p = currentProvider();
+    if (!p) return;
+    if (applyProviderPricing(p, false)) await savePrices();
+  }, 300);
+});
+
 // —— 用量面板 ——
 
 // 刷新用量数据（折线图 + 汇总 + 费用）
@@ -188,13 +427,14 @@ async function refreshUsage() {
   drawUsageChart();
 }
 
-// 渲染四张用量卡片与费用估算
+// 渲染四张用量卡片、费用估算与实际计费
 function renderUsageSummary() {
   $('usage-prompt').textContent = formatNum(tokenUsage.prompt);
   $('usage-completion').textContent = formatNum(tokenUsage.completion);
   $('usage-total').textContent = formatNum(tokenUsage.total);
   $('usage-requests').textContent = formatNum(tokenUsage.requests);
   calcCost();
+  renderActualCost();
 }
 
 // 计算并显示估算费用 = prompt/1e6*输入单价 + completion/1e6*输出单价
@@ -207,6 +447,30 @@ function calcCost() {
   // 金额很小时保留 6 位小数，避免显示 $0.0000
   const digits = cost > 0 && cost < 0.0001 ? 6 : 4;
   $('cost-estimate').textContent = '$' + cost.toFixed(digits) + ' USD';
+}
+
+// 实际计费：tokenHistory 中所有 cost 字段之和；无 cost 数据返回 null
+function sumActualCost() {
+  let sum = 0;
+  let found = false;
+  for (const h of tokenHistory) {
+    if (h && typeof h === 'object' && h.cost != null) {
+      const n = Number(h.cost);
+      if (isFinite(n)) { sum += n; found = true; }
+    }
+  }
+  return found ? sum : null;
+}
+
+// 渲染「实际计费（来自 API cost 字段）」：无则显示 '—'
+function renderActualCost() {
+  const sum = sumActualCost();
+  if (sum == null) {
+    $('cost-actual').textContent = '—';
+    return;
+  }
+  const digits = sum > 0 && sum < 0.0001 ? 6 : 4;
+  $('cost-actual').textContent = '$' + sum.toFixed(digits) + ' USD';
 }
 
 // 单价变化：即时重算费用并保存（先 GET_STATE 拿 config 再合并 SET_CONFIG，保留其他配置）
@@ -300,7 +564,7 @@ function drawUsageChart() {
   const n = points.length;
 
   // Y 轴网格线与数值（4 条）
-  ctx.font = '11px system-ui, sans-serif';
+  ctx.font = '11px Roboto, system-ui, sans-serif';
   for (let i = 0; i <= 4; i++) {
     const y = padT + plotH - (plotH * i) / 4;
     ctx.strokeStyle = 'rgba(0,0,0,.08)';
@@ -309,14 +573,14 @@ function drawUsageChart() {
     ctx.moveTo(padL, y);
     ctx.lineTo(cssW - padR, y);
     ctx.stroke();
-    ctx.fillStyle = '#57606a';
+    ctx.fillStyle = '#5f6368';
     ctx.textAlign = 'right';
     ctx.textBaseline = 'middle';
     ctx.fillText(formatCompact((niceMax * i) / 4), padL - 6, y);
   }
 
   // X 轴标签：两端与中间
-  ctx.fillStyle = '#57606a';
+  ctx.fillStyle = '#5f6368';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'top';
   const labelIdx = n > 1 ? [0, Math.floor((n - 1) / 2), n - 1] : [0];
@@ -332,7 +596,7 @@ function drawUsageChart() {
   ctx.beginPath();
   ctx.moveTo(xAt(0), yAt(points[0].value));
   for (let i = 1; i < n; i++) ctx.lineTo(xAt(i), yAt(points[i].value));
-  ctx.strokeStyle = '#2563eb';
+  ctx.strokeStyle = '#1a73e8';
   ctx.lineWidth = 2;
   ctx.lineJoin = 'round';
   ctx.stroke();
@@ -340,7 +604,7 @@ function drawUsageChart() {
   ctx.lineTo(xAt(n - 1), padT + plotH);
   ctx.lineTo(xAt(0), padT + plotH);
   ctx.closePath();
-  ctx.fillStyle = 'rgba(37, 99, 235, .12)';
+  ctx.fillStyle = 'rgba(26, 115, 232, .12)';
   ctx.fill();
 }
 
@@ -525,9 +789,14 @@ $('file-import').addEventListener('change', async (e) => {
 // —— 初始化 ——
 
 async function init() {
+  providers = await loadProviders();
+  fillProviderOptions();
   const state = await sendMsg({ type: 'GET_STATE' });
   if (state && state.config) fillForm(state.config);
   applyMirrors(state);
+  // 仅填充当前服务商的内置模型列表，不覆盖已保存的 baseUrl / 单价
+  const p = currentProvider();
+  if (p) fillModelList(p);
   renderUsageSummary();
   drawUsageChart();
   renderSiteSettings();

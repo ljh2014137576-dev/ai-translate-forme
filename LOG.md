@@ -66,3 +66,12 @@
 - 切页动画: 由 rotateY 旋转改为快速整体平移(translateX 0.22s)。
 - 审查修复: detectMainLang 的 Han 阈值 0.3 太激进导致中英混合页误判为中文而跳过翻译 → 改为 Han 占多数(>0.5)才判中文，Latin 不少于 Han 判英文。
 - e2e 四套全过: 懒加载增量翻译、习惯语言跳过(不调 API)、缓存过期清理+pinned、自动翻译/三模式/进度/缓存命中/变更重翻、用量面板/费用、设置页。
+
+## v0.3.0 — 2026-08-08
+- UI 全面改为 Google Material Design 风格(白底 #f8f9fa、12px 圆角卡片 + elevation、主色 #1a73e8、outlined 输入框、switch/radio、抽屉式左导航)，保留左侧导航与全部元素 ID。
+- 多厂商适配: 内置 8 家厂商(DeepSeek/OpenAI/Claude/Gemini/通义/Kimi/智谱/豆包)，统一协议 provider 字段；请求/响应按三种格式适配: openai(/chat/completions)、anthropic(/v1/messages, x-api-key)、gemini(:generateContent?key=)；内置模型列表与官方近似定价表。
+- 费用估算: 用量面板新增「实际计费」——若 API 响应 usage 含 cost/usd_cost/total_cost/price/amount 字段则直读累计，否则按内置官方定价表估算(单价可改)。
+- 设置页新增「服务商」下拉: 切换自动填 baseUrl、填充内置模型列表、按模型自动带出官方单价。
+- manifest: host_permissions 覆盖 8 家厂商域名，version 0.3.0。
+- 审查修复: gemini 分支误读 data.usage(实际为 usageMetadata)导致用量不累计 → 修正并兼容 openai/anthropic 的 usage。
+- e2e 五套全过: 多厂商(openai×2/anthropic/gemini 翻译 + usage 累计 + cost 直读)、三模式/缓存/进度、用量面板/费用、设置页、懒加载/语言跳过/缓存生命周期。
