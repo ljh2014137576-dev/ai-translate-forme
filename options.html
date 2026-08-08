@@ -86,6 +86,12 @@
           </div>
 
           <div class="field">
+            <label for="nativeLang">习惯语言</label>
+            <input type="text" id="nativeLang" list="lang-list" placeholder="简体中文" autocomplete="off">
+            <p class="hint">你的主要阅读语言；网页主要语言与之相同时将自动跳过翻译，不请求 AI、不留缓存。</p>
+          </div>
+
+          <div class="field">
             <label>默认模式</label>
             <div class="radio-row">
               <label class="radio"><input type="radio" name="defaultMode" value="original"> 原文</label>
@@ -163,6 +169,11 @@
           <p class="hint">翻译结果按页面保存到本地，重复打开同一页面可直接复用，节省 token。</p>
           <label class="check"><input type="checkbox" id="autoApplyCache"> 打开网站自动应用缓存</label>
           <p class="hint">打开已缓存的网站时自动应用翻译缓存，无需手动点击翻译。</p>
+          <div class="field">
+            <label for="cacheTtl">缓存生命周期（天）</label>
+            <input type="number" id="cacheTtl" min="1" max="365" step="1" placeholder="7">
+            <p class="hint">过期缓存会被自动清理；设置为长期保留的页面不受影响。</p>
+          </div>
         </div>
 
         <div class="section">

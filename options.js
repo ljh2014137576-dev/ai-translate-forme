@@ -39,6 +39,13 @@ function formatNum(n) {
   return v.toLocaleString('en-US');
 }
 
+// 时间戳格式化为 YYYY-MM-DD（用于缓存过期时间展示）
+function formatDateYmd(ts) {
+  const d = new Date(ts);
+  if (isNaN(d.getTime())) return '--';
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+
 // —— tab 切换 ——
 async function switchTab(tab) {
   document.querySelectorAll('.tab').forEach((b) => b.classList.toggle('active', b.dataset.tab === tab));
@@ -65,6 +72,7 @@ function fillForm(cfg) {
   $('baseUrl').value = cfg.baseUrl || 'https://api.deepseek.com';
   $('model').value = cfg.model || 'deepseek-chat';
   $('targetLang').value = cfg.targetLang || '简体中文';
+  $('nativeLang').value = cfg.nativeLang || '简体中文';
   $('chunkChars').value = cfg.chunkChars || 6000;
   $('concurrency').value = cfg.concurrency || 3;
   const mode = cfg.defaultMode === 'translated' || cfg.defaultMode === 'bilingual' ? cfg.defaultMode : 'original';
@@ -72,6 +80,7 @@ function fillForm(cfg) {
   if (radio) radio.checked = true;
   $('keepCache').checked = cfg.keepCache !== false;
   $('autoApplyCache').checked = !!cfg.autoApplyCache;
+  $('cacheTtl').value = cfg.cacheTtlDays || 7;
   $('inputPrice').value = cfg.inputPricePerM != null ? cfg.inputPricePerM : 0.27;
   $('outputPrice').value = cfg.outputPricePerM != null ? cfg.outputPricePerM : 1.10;
 }
@@ -81,16 +90,19 @@ function fillForm(cfg) {
 // 收集表单为配置对象（含默认模式与缓存开关）
 function collectForm() {
   const mode = document.querySelector('input[name="defaultMode"]:checked');
+  const cacheTtl = parseInt($('cacheTtl').value, 10);
   return {
     apiKey: $('apiKey').value.trim(),
     baseUrl: $('baseUrl').value.trim(),
     model: $('model').value.trim(),
     targetLang: $('targetLang').value.trim(),
+    nativeLang: $('nativeLang').value.trim() || '简体中文',
     chunkChars: parseInt($('chunkChars').value, 10),
     concurrency: parseInt($('concurrency').value, 10),
     defaultMode: mode ? mode.value : 'translated',
     keepCache: $('keepCache').checked,
-    autoApplyCache: $('autoApplyCache').checked
+    autoApplyCache: $('autoApplyCache').checked,
+    cacheTtlDays: Number.isInteger(cacheTtl) && cacheTtl > 0 ? cacheTtl : 7
   };
 }
 
@@ -101,6 +113,8 @@ function validate(cfg) {
   if (!cfg.targetLang) return '目标语言不能为空';
   if (!Number.isInteger(cfg.chunkChars) || cfg.chunkChars < 100 || cfg.chunkChars > 20000) return '每批字符数需为 100~20000 的整数';
   if (!Number.isInteger(cfg.concurrency) || cfg.concurrency < 1 || cfg.concurrency > 10) return '并发数需为 1~10 的整数';
+  // 习惯语言允许为空：collectForm 已将其默认填为「简体中文」，故此处不校验
+  if (!Number.isInteger(cfg.cacheTtlDays) || cfg.cacheTtlDays < 1 || cfg.cacheTtlDays > 365) return '缓存生命周期需为 1~365 的整数';
   return null;
 }
 
@@ -385,7 +399,7 @@ async function deleteSiteRule(host) {
   await sendMsg({ type: 'DEL_SITE_SETTINGS', host });
 }
 
-// 渲染页面缓存列表（URL、时间、段数、指纹 + 删除）
+// 渲染页面缓存列表（URL、时间、段数、指纹、过期时间 + 长期保留 + 删除）
 function renderCacheList() {
   const box = $('cache-list');
   box.innerHTML = '';
@@ -400,12 +414,22 @@ function renderCacheList() {
     const fp = entry.fingerprint != null ? String(entry.fingerprint).slice(0, 8) : '--';
     const time = entry.ts ? new Date(entry.ts).toLocaleString() : '--';
     const title = entry.title || entry.url || key;
+    // 过期时间：长期保留显示「永久」，否则按 expiresAt 显示 YYYY-MM-DD
+    const expire = entry.pinned ? '永久' : (entry.expiresAt ? formatDateYmd(entry.expiresAt) : '--');
     const row = document.createElement('div');
     row.className = 'cache';
     row.innerHTML =
       '<div class="cache-title" title="' + escapeHtml(title) + '">' + escapeHtml(title) + '</div>' +
-      '<div class="cache-meta">' + escapeHtml(entry.url || key) + ' · ' + escapeHtml(time) + ' · ' + segs + ' 段 · fp ' + escapeHtml(fp) + '</div>' +
+      '<div class="cache-meta">' + escapeHtml(entry.url || key) + ' · ' + escapeHtml(time) + ' · ' + segs + ' 段 · fp ' + escapeHtml(fp) + ' · 过期 ' + escapeHtml(expire) + '</div>' +
+      '<label class="check small"><input type="checkbox" data-kind="pinned"' + (entry.pinned ? ' checked' : '') + '> 长期保留</label>' +
       '<button type="button" class="btn tiny del" title="删除此缓存">删除</button>';
+    // 长期保留开关：本地更新 pinned 并通知后台 SET_CACHE_PIN
+    row.querySelector('[data-kind="pinned"]').addEventListener('change', async () => {
+      pageCache[key] = pageCache[key] || {};
+      pageCache[key].pinned = row.querySelector('[data-kind="pinned"]').checked;
+      renderCacheList();
+      await sendMsg({ type: 'SET_CACHE_PIN', pageKey: key, pinned: pageCache[key].pinned });
+    });
     row.querySelector('.del').addEventListener('click', async () => {
       delete pageCache[key];
       renderCacheList();

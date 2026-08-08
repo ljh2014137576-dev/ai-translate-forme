@@ -6,13 +6,15 @@ const DEFAULT_CONFIG = {
   baseUrl: 'https://api.deepseek.com',
   model: 'deepseek-chat',
   targetLang: '简体中文',
+  nativeLang: '简体中文',     // 用户习惯语言（content 用于跳过翻译）
   chunkChars: 6000,
   concurrency: 3,
   defaultMode: 'translated', // original | translated | bilingual
   keepCache: true,           // 默认开启页面缓存
   autoApplyCache: false,     // 默认不自动套用缓存
   inputPricePerM: 0.27,      // 每百万输入 token 价格（USD，默认按 deepseek-chat 官方价）
-  outputPricePerM: 1.10      // 每百万输出 token 价格（USD）
+  outputPricePerM: 1.10,     // 每百万输出 token 价格（USD）
+  cacheTtlDays: 7            // 缓存生命周期天数（默认 7 天）
 };
 
 const CHUNK_MAX_ITEMS = 500;     // 每批最多条数
@@ -184,19 +186,38 @@ async function writePageCache(msg, sender, cfg, segments, translations) {
   const keep = site[host] && site[host].keepCache != null ? site[host].keepCache : cfg.keepCache;
   if (!keep) return;
   const pageCache = (await chrome.storage.local.get('pageCache')).pageCache || {};
+  const ts = Date.now();
   pageCache[msg.pageKey] = {
     fingerprint: msg.fingerprint,
     url: msg.url || (sender && sender.tab && sender.tab.url) || '',
     title: msg.title || (sender && sender.tab && sender.tab.title) || '',
     segments,            // 已去重
     translations,
-    ts: Date.now()
+    ts,
+    expiresAt: ts + (cfg.cacheTtlDays || DEFAULT_CONFIG.cacheTtlDays) * 86400000, // 过期时间（毫秒），到期后由生命周期清理
+    pinned: false        // 长期保留标记，不受生命周期清理
   };
   await chrome.storage.local.set({ pageCache });
 }
 
+// 清理过期缓存：删除 expiresAt < 当前时间 且未 pinned（长期保留）的条目，并写回 storage
+async function cleanExpiredCache() {
+  const pageCache = (await chrome.storage.local.get('pageCache')).pageCache || {};
+  const now = Date.now();
+  let changed = false;
+  for (const key of Object.keys(pageCache)) {
+    const entry = pageCache[key];
+    if (entry && !entry.pinned && entry.expiresAt != null && entry.expiresAt < now) {
+      delete pageCache[key];
+      changed = true;
+    }
+  }
+  if (changed) await chrome.storage.local.set({ pageCache });
+}
+
 // 处理整页翻译：分批 → 并发请求 → 汇总 + 进度 + 缓存
 async function handleTranslate(msg, sender) {
+  await cleanExpiredCache(); // 翻译前先清理过期缓存
   const cfg = await getConfig();
   if (!cfg.apiKey) return { ok: false, error: '未配置 API Key，请先在设置页填写。' };
 
@@ -317,6 +338,7 @@ async function handleGetModels() {
 
 // 查询页面缓存（fingerprint 匹配才算命中）
 async function handleCheckCache(msg) {
+  await cleanExpiredCache(); // 查询前先清理过期缓存
   const pageCache = (await chrome.storage.local.get('pageCache')).pageCache || {};
   const cache = pageCache[msg.pageKey];
   if (cache && cache.fingerprint && cache.fingerprint === msg.fingerprint) {
@@ -337,6 +359,16 @@ async function handleClearCache(msg) {
   return { ok: true };
 }
 
+// 设置缓存长期保留标记（pinned）；pageKey 不存在则忽略
+async function handleSetCachePin(msg) {
+  const pageCache = (await chrome.storage.local.get('pageCache')).pageCache || {};
+  if (pageCache[msg.pageKey]) {
+    pageCache[msg.pageKey].pinned = !!msg.pinned;
+    await chrome.storage.local.set({ pageCache });
+  }
+  return { ok: true };
+}
+
 // 切换默认模式（original | translated | bilingual）
 async function handleSetMode(msg) {
   if (!['original', 'translated', 'bilingual'].includes(msg.mode)) {
@@ -348,6 +380,7 @@ async function handleSetMode(msg) {
 
 // 获取全量状态（配置、站点设置、缓存、用量）
 async function handleGetState() {
+  await cleanExpiredCache(); // 返回状态前先清理过期缓存
   const stored = await chrome.storage.local.get(['siteSettings', 'pageCache', 'tokenUsage', 'tokenHistory']);
   return {
     ok: true,
@@ -381,6 +414,7 @@ async function handleDelSiteSettings(msg) {
 
 // 导出缓存（页面缓存 + 站点设置 + 时间戳）
 async function handleExportCache() {
+  await cleanExpiredCache(); // 导出前先清理过期缓存
   const stored = await chrome.storage.local.get(['pageCache', 'siteSettings']);
   return {
     ok: true,
@@ -394,6 +428,7 @@ async function handleExportCache() {
 
 // 导入缓存：Object.assign 合并到现有对象，未提供的键不覆盖
 async function handleImportCache(msg) {
+  await cleanExpiredCache(); // 导入前先清理过期缓存
   const data = msg.data || {};
   const keys = [];
   if (data.pageCache) keys.push('pageCache');
@@ -401,7 +436,20 @@ async function handleImportCache(msg) {
   if (!keys.length) return { ok: true };
   const cur = await chrome.storage.local.get(keys);
   const patch = {};
-  if (data.pageCache) patch.pageCache = Object.assign({}, cur.pageCache || {}, data.pageCache);
+  if (data.pageCache) {
+    const cfg = await getConfig();
+    const ttlMs = (cfg.cacheTtlDays || DEFAULT_CONFIG.cacheTtlDays) * 86400000;
+    const now = Date.now();
+    const merged = Object.assign({}, cur.pageCache || {}, data.pageCache);
+    // 兼容旧条目：无 expiresAt 则补上过期时间，pinned 缺省为 false（不长期保留）
+    for (const key of Object.keys(data.pageCache)) {
+      const entry = merged[key];
+      if (!entry || typeof entry !== 'object') continue;
+      if (entry.expiresAt == null) entry.expiresAt = now + ttlMs;
+      if (entry.pinned == null) entry.pinned = false;
+    }
+    patch.pageCache = merged;
+  }
   if (data.siteSettings) patch.siteSettings = Object.assign({}, cur.siteSettings || {}, data.siteSettings);
   await chrome.storage.local.set(patch);
   return { ok: true };
@@ -436,6 +484,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         return handleExportCache();
       case 'IMPORT_CACHE':
         return handleImportCache(msg);
+      case 'SET_CACHE_PIN':
+        return handleSetCachePin(msg);
       case 'RESET_TOKEN_USAGE':
         return handleResetTokenUsage();
       case 'TEST_API':

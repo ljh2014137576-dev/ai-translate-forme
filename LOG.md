@@ -58,3 +58,11 @@
 - 大量 CSS 3D 动效: perspective/preserve-3d、切页 rotateY 进出场、卡片/按钮/折线图 hover translateZ+rotateX/Y、按钮按压键帽下沉、背景粒子漂移呼吸、首载逐页浮现、标题金色下划线。
 - options.js / popup.js 功能逻辑零改动(逐字节未变)，全部元素 ID 保留(36+6)，e2e 三套回归全通过。
 - 修复原版潜在缺陷: #usage-chart 由 display:none 改为 block(原样式会让折线图有数据也看不到)。
+
+## v0.2.3 — 2026-08-08
+- 懒加载页面: 翻译后 MutationObserver 监听 DOM 变化，点击「加载更多」等新增内容自动增量翻译(去重/防抖 500ms/不写缓存)；还原时停止监听。
+- 习惯语言跳过: 新增「习惯语言」设置(默认简体中文)；detectMainLang 统计页面字符 Script 占比判定主要语言，与习惯语言同族则跳过翻译(不发 AI、不留缓存、不再次翻译)；popup 显示友好提示。
+- 缓存生命周期: 每条缓存带 expiresAt(默认 7 天，可配置 cacheTtlDays)，过期自动清理；「长期保留」pinned 条目不受清理；设置页可设生命周期天数、每条可勾选长期保留并显示过期时间。
+- 切页动画: 由 rotateY 旋转改为快速整体平移(translateX 0.22s)。
+- 审查修复: detectMainLang 的 Han 阈值 0.3 太激进导致中英混合页误判为中文而跳过翻译 → 改为 Han 占多数(>0.5)才判中文，Latin 不少于 Han 判英文。
+- e2e 四套全过: 懒加载增量翻译、习惯语言跳过(不调 API)、缓存过期清理+pinned、自动翻译/三模式/进度/缓存命中/变更重翻、用量面板/费用、设置页。

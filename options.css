@@ -176,17 +176,17 @@ body {
   opacity: .85;
 }
 
-/* —— 内容页：默认隐藏，active 显示；进出场 3D 旋转动画（纯 CSS） —— */
+/* —— 内容页：默认隐藏，active 显示；快速整体平移切换（无旋转，纯 CSS） —— */
+/* 非 active：整体右移 60px 待命；active：从右向左平移切入，约 0.22s */
 .tab-page {
   position: absolute;
   top: 0; left: 0; right: 0;
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
-  transform: perspective(1200px) rotateY(70deg);
-  transform-origin: left center;
+  transform: translateX(60px);
   transform-style: preserve-3d;
-  transition: opacity .35s ease, transform .35s ease, visibility 0s linear .35s;
+  transition: transform .22s ease-out, opacity .22s ease-out, visibility 0s linear .22s;
   will-change: transform, opacity;
 }
 .tab-page.active {
@@ -194,17 +194,10 @@ body {
   opacity: 1;
   visibility: visible;
   pointer-events: auto;
+  transform: translateX(0);
   transform-style: preserve-3d;
   z-index: 2;
-  transition: opacity .35s ease, transform .35s ease, visibility 0s;
-  animation: ark-page-in .35s ease-out both;
-}
-/* 首次加载：三个页面依次从 translateZ(-60px)+opacity 0 浮现 */
-.tab-page:nth-of-type(2).active { animation-delay: .12s; }
-.tab-page:nth-of-type(3).active { animation-delay: .24s; }
-@keyframes ark-page-in {
-  from { opacity: 0; transform: perspective(1200px) rotateY(-70deg) translateZ(-60px); }
-  to   { opacity: 1; transform: perspective(1200px) rotateY(0deg) translateZ(0); }
+  transition: transform .22s ease-out, opacity .22s ease-out, visibility 0s;
 }
 
 /* —— 面板/卡片：方舟方角卡片 + 悬浮 3D —— */

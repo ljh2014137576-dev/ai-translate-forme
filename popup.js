@@ -104,7 +104,7 @@ document.getElementById('btn-translate').addEventListener('click', async () => {
       if (res && res.ok) {
         setStatus(`翻译完成（${res.count} 段）` + (res.error ? '，部分失败' : ''));
       } else {
-        setStatus((res && res.error) || '翻译失败', true);
+        setStatus(res && res.error === 'native' ? '页面已是习惯语言，无需翻译' : ((res && res.error) || '翻译失败'), true);
       }
     } catch (e) {
       setStatus('通信失败：' + (e && e.message ? e.message : e), true);
