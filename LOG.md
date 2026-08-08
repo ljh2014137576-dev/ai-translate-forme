@@ -94,3 +94,12 @@
 - 亚克力模糊强度可调: 默认由 28px 提升至 40px；所有亚克力面板统一走 CSS 变量 --acrylic-blur。
 - 设置页「基础设置」新增「亚克力模糊强度」滑块(0~80px)：拖动实时生效(改 CSS 变量)并防抖保存到配置(acrylicBlur)；popup 同步应用该值。
 - 验证: 滑块拖动 40→70px 实时生效、保存持久化、options 回归通过。
+
+## v0.3.4 - 2026-08-08
+- 按 Fluent Acrylic 教程(zhihu p/349444364, 被 403 后改用同文镜像 ubug.io/blog/fluent-acrylic)重构亚克力效果:
+  - backdrop-filter 从 blur+saturate(160%) 升级为完整配方: blur + brightness(120%) + saturate(80%)(亮度提亮、饱和度压低, 前景更清晰)。
+  - 所有亚克力面板(.side-nav/.card/.list/.usage-item/popup)新增噪点层: 50x50 PNG base64 噪点图 + background-size:50px, 呈现磨砂哑光质感。
+  - CSS 变量 --acrylic-noise 统一管理噪点图(options.css / popup.css 的 :root)。
+- 模糊强度滑块(0~80px)保持可拖: applyAcrylic / popup.js 同步为新滤镜链, 拖动后 brightness+saturate 不丢失。
+- manifest version 0.3.0 -> 0.3.4(之前几次发版漏改, 补齐以便拖入 CRX 时识别为更新)。
+- 验证: 5 套 e2e 回归全过(features/usage/options/lazy/multi);computed style 确认 4 面板+popup 均为 blur(40px) brightness(1.2) saturate(0.8)+噪点背景;滑块拖到 60px 实时生效;3D 雕塑仍正常渲染。

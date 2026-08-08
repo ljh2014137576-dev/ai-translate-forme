@@ -501,7 +501,7 @@ bindPrice('outputPrice');
 // 亚克力模糊强度：应用到 CSS 变量(所有亚克力面板实时生效)，并同步数值显示
 function applyAcrylic(px) {
   const v = Math.max(0, Math.min(80, Number(px) || 0));
-  document.documentElement.style.setProperty('--acrylic-blur', 'blur(' + v + 'px) saturate(160%)');
+  document.documentElement.style.setProperty('--acrylic-blur', 'blur(' + v + 'px) brightness(120%) saturate(80%)');
   const valEl = $('acrylicBlurVal');
   if (valEl) valEl.textContent = v + 'px';
 }
