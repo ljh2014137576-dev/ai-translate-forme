@@ -1,13 +1,25 @@
-// AI 网页翻译 — 设置页逻辑（配置 / 默认模式 / 缓存 / 站点规则 / token 用量）
+// AI 网页翻译 — 设置页逻辑
+// 三个分页（基础设置 / 用量面板 / 页面缓存），全部与后台通过 chrome.runtime.sendMessage 通信。
+// 统一约定：所有 sendMessage 均 await 并容错（后台未实现/出错时返回 null，不抛出）。
+
 const $ = (id) => document.getElementById(id);
 const statusEl = $('status');
 
+// —— 本地镜像（后台未就绪时仍可展示与操作）——
+let siteSettings = {};                                  // { [host]: { autoApply, keepCache } }
+let pageCache = {};                                     // { [pageKey]: { fingerprint, url, title, segments, translations, ts } }
+let tokenUsage = { prompt: 0, completion: 0, total: 0, requests: 0 }; // 累计用量
+let tokenHistory = [];                                  // [{ ts, prompt, completion, total }] 时间序列（ts 毫秒）
+
+// —— 基础工具 ——
+
+// 状态提示
 function setStatus(text, isError, isOk) {
   statusEl.textContent = text;
   statusEl.className = 'status' + (isError ? ' error' : isOk ? ' ok' : '');
 }
 
-// 统一后台通信：全部 await 并容错（后台未实现时返回 null）
+// 统一后台通信：全部 await 并容错
 async function sendMsg(msg) {
   try {
     return await chrome.runtime.sendMessage(msg);
@@ -16,15 +28,55 @@ async function sendMsg(msg) {
   }
 }
 
-// 本地镜像：站点规则 / 页面缓存 / token 用量（后台未就绪时仍可展示与操作）
-let siteSettings = {};
-let pageCache = {};
-let tokenUsage = { prompt: 0, completion: 0, total: 0, requests: 0 };
-
-// 转义 HTML，防止站点名/URL 破坏结构
+// 转义 HTML，防止站点名 / URL / 标题注入破坏结构
 function escapeHtml(str) {
   return String(str).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
+
+// 数字千分位格式化
+function formatNum(n) {
+  const v = Number(n) || 0;
+  return v.toLocaleString('en-US');
+}
+
+// —— tab 切换 ——
+async function switchTab(tab) {
+  document.querySelectorAll('.tab').forEach((b) => b.classList.toggle('active', b.dataset.tab === tab));
+  document.querySelectorAll('.tab-page').forEach((p) => p.classList.toggle('active', p.id === 'page-' + tab));
+  if (tab === 'usage') await refreshUsage();
+  else if (tab === 'cache') await refreshCache();
+}
+
+// —— 状态镜像 ——
+
+// 用 GET_STATE 结果更新本地镜像（不覆盖基础设置表单的输入）
+function applyMirrors(state) {
+  if (!state) return;
+  if (state.siteSettings) siteSettings = state.siteSettings;
+  if (state.pageCache) pageCache = state.pageCache;
+  if (state.tokenUsage) tokenUsage = state.tokenUsage;
+  if (Array.isArray(state.tokenHistory)) tokenHistory = state.tokenHistory;
+}
+
+// 用配置填充表单（仅初始化时调用一次）
+function fillForm(cfg) {
+  cfg = cfg || {};
+  $('apiKey').value = cfg.apiKey || '';
+  $('baseUrl').value = cfg.baseUrl || 'https://api.deepseek.com';
+  $('model').value = cfg.model || 'deepseek-chat';
+  $('targetLang').value = cfg.targetLang || '简体中文';
+  $('chunkChars').value = cfg.chunkChars || 6000;
+  $('concurrency').value = cfg.concurrency || 3;
+  const mode = cfg.defaultMode === 'translated' || cfg.defaultMode === 'bilingual' ? cfg.defaultMode : 'original';
+  const radio = document.querySelector('input[name="defaultMode"][value="' + mode + '"]');
+  if (radio) radio.checked = true;
+  $('keepCache').checked = cfg.keepCache !== false;
+  $('autoApplyCache').checked = !!cfg.autoApplyCache;
+  $('inputPrice').value = cfg.inputPricePerM != null ? cfg.inputPricePerM : 0.27;
+  $('outputPrice').value = cfg.outputPricePerM != null ? cfg.outputPricePerM : 1.10;
+}
+
+// —— 基础设置 ——
 
 // 收集表单为配置对象（含默认模式与缓存开关）
 function collectForm() {
@@ -63,6 +115,232 @@ async function ensureHostPermission(baseUrl) {
     }
   } catch (e) { /* 非标准 URL 时忽略 */ }
 }
+
+// 获取模型列表并填充 datalist（保留手动输入能力）
+async function fetchModels() {
+  const cfg = collectForm();
+  const err = validate(cfg);
+  if (err) { setStatus(err, true); return; }
+  if (!cfg.apiKey) { setStatus('请先填写 API Key', true); return; }
+  setStatus('获取模型中…');
+  await sendMsg({ type: 'SET_CONFIG', config: cfg });
+  await ensureHostPermission(cfg.baseUrl);
+  const res = await sendMsg({ type: 'GET_MODELS' });
+  if (!res || !res.ok) { setStatus('获取模型失败：' + ((res && res.error) || '未知错误'), true); return; }
+  const list = $('model-list');
+  list.innerHTML = '';
+  for (const m of (res.models || [])) {
+    const opt = document.createElement('option');
+    opt.value = m.id;
+    list.appendChild(opt);
+  }
+  if (res.models && res.models.length) setStatus('已获取 ' + res.models.length + ' 个模型，输入框下拉可选', false, true);
+  else setStatus('未返回任何模型', true);
+}
+
+// 保存基础配置（表单提交）
+$('form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const cfg = collectForm();
+  const err = validate(cfg);
+  if (err) { setStatus(err, true); return; }
+  await sendMsg({ type: 'SET_CONFIG', config: cfg });
+  await ensureHostPermission(cfg.baseUrl);
+  setStatus('已保存', false, true);
+});
+
+$('btn-test').addEventListener('click', async () => {
+  const cfg = collectForm();
+  const err = validate(cfg);
+  if (err) { setStatus(err, true); return; }
+  if (!cfg.apiKey) { setStatus('请先填写 API Key', true); return; }
+  setStatus('测试中…');
+  await sendMsg({ type: 'SET_CONFIG', config: cfg });
+  await ensureHostPermission(cfg.baseUrl);
+  const res = await sendMsg({ type: 'TEST_API' });
+  if (res && res.ok) setStatus('连接成功 ✔', false, true);
+  else setStatus('连接失败：' + ((res && res.error) || '未知错误'), true);
+});
+
+$('btn-models').addEventListener('click', fetchModels);
+
+// —— 用量面板 ——
+
+// 刷新用量数据（折线图 + 汇总 + 费用）
+async function refreshUsage() {
+  const state = await sendMsg({ type: 'GET_STATE' });
+  applyMirrors(state);
+  renderUsageSummary();
+  drawUsageChart();
+}
+
+// 渲染四张用量卡片与费用估算
+function renderUsageSummary() {
+  $('usage-prompt').textContent = formatNum(tokenUsage.prompt);
+  $('usage-completion').textContent = formatNum(tokenUsage.completion);
+  $('usage-total').textContent = formatNum(tokenUsage.total);
+  $('usage-requests').textContent = formatNum(tokenUsage.requests);
+  calcCost();
+}
+
+// 计算并显示估算费用 = prompt/1e6*输入单价 + completion/1e6*输出单价
+function calcCost() {
+  const ip = parseFloat($('inputPrice').value);
+  const op = parseFloat($('outputPrice').value);
+  const prompt = tokenUsage.prompt || 0;
+  const completion = tokenUsage.completion || 0;
+  const cost = (prompt / 1e6) * (isNaN(ip) ? 0 : ip) + (completion / 1e6) * (isNaN(op) ? 0 : op);
+  // 金额很小时保留 6 位小数，避免显示 $0.0000
+  const digits = cost > 0 && cost < 0.0001 ? 6 : 4;
+  $('cost-estimate').textContent = '$' + cost.toFixed(digits) + ' USD';
+}
+
+// 单价变化：即时重算费用并保存（先 GET_STATE 拿 config 再合并 SET_CONFIG，保留其他配置）
+async function savePrices() {
+  const state = await sendMsg({ type: 'GET_STATE' });
+  const base = state && state.config ? state.config : {};
+  const ip = parseFloat($('inputPrice').value);
+  const op = parseFloat($('outputPrice').value);
+  const config = Object.assign({}, base, {
+    inputPricePerM: isNaN(ip) ? 0 : ip,
+    outputPricePerM: isNaN(op) ? 0 : op
+  });
+  await sendMsg({ type: 'SET_CONFIG', config });
+}
+
+const bindPrice = (id) => {
+  $(id).addEventListener('input', () => {
+    calcCost();
+    savePrices();
+  });
+};
+bindPrice('inputPrice');
+bindPrice('outputPrice');
+
+// 折线图数据：<=30 条按每次请求逐点；>30 条按天聚合（每天 total 求和）画最近 30 天
+function buildChartPoints() {
+  const sorted = tokenHistory
+    .filter((h) => h && typeof h === 'object')
+    .sort((a, b) => (a.ts || 0) - (b.ts || 0));
+  if (sorted.length <= 30) {
+    return sorted.map((h) => ({ ts: h.ts || 0, value: h.total || 0 }));
+  }
+  // 按天聚合
+  const dayMap = new Map();
+  for (const h of sorted) {
+    const d = new Date(h.ts || 0);
+    const key = d.getFullYear() + '-' + d.getMonth() + '-' + d.getDate();
+    dayMap.set(key, (dayMap.get(key) || 0) + (h.total || 0));
+  }
+  const days = [...dayMap.entries()].sort((a, b) => a[0] < b[0] ? -1 : 1);
+  const recent = days.slice(-30);
+  return recent.map(([key, value]) => ({ ts: new Date(key).getTime(), value }));
+}
+
+// Y 轴数值缩写：k / M
+function formatCompact(v) {
+  if (v >= 1e6) return (v / 1e6).toFixed(1).replace(/\.0$/, '') + 'M';
+  if (v >= 1e3) return (v / 1e3).toFixed(1).replace(/\.0$/, '') + 'k';
+  return String(Math.round(v));
+}
+
+// X 轴时间标签：同一天显示 HH:MM，跨天显示 M/D
+function formatTimeLabel(ts) {
+  const d = new Date(ts);
+  const now = new Date();
+  const sameDay = d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
+  if (sameDay) return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+  return (d.getMonth() + 1) + '/' + d.getDate();
+}
+
+// 手绘折线图（无第三方库）：自适应容器宽度 + devicePixelRatio
+function drawUsageChart() {
+  const canvas = $('usage-chart');
+  const empty = $('usage-empty');
+  const points = buildChartPoints();
+  if (!points.length) {
+    if (empty) empty.style.display = 'block';
+    return;
+  }
+  if (empty) empty.style.display = 'none';
+
+  const wrap = $('usage-chart-wrap');
+  const cssW = wrap ? wrap.clientWidth : 300;
+  const cssH = 200;
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = Math.round(cssW * dpr);
+  canvas.height = Math.round(cssH * dpr);
+  canvas.style.width = cssW + 'px';
+  canvas.style.height = cssH + 'px';
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, cssW, cssH);
+
+  const padL = 40, padR = 12, padT = 12, padB = 24;
+  const plotW = cssW - padL - padR;
+  const plotH = cssH - padT - padB;
+  if (plotW <= 0 || plotH <= 0) return;
+
+  const max = Math.max(1, ...points.map((p) => p.value));
+  const niceMax = Math.ceil(max / 4) * 4 || 4;
+  const n = points.length;
+
+  // Y 轴网格线与数值（4 条）
+  ctx.font = '11px system-ui, sans-serif';
+  for (let i = 0; i <= 4; i++) {
+    const y = padT + plotH - (plotH * i) / 4;
+    ctx.strokeStyle = 'rgba(0,0,0,.08)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(padL, y);
+    ctx.lineTo(cssW - padR, y);
+    ctx.stroke();
+    ctx.fillStyle = '#57606a';
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(formatCompact((niceMax * i) / 4), padL - 6, y);
+  }
+
+  // X 轴标签：两端与中间
+  ctx.fillStyle = '#57606a';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  const labelIdx = n > 1 ? [0, Math.floor((n - 1) / 2), n - 1] : [0];
+  for (const idx of labelIdx) {
+    const x = padL + (plotW * idx) / (n > 1 ? n - 1 : 1);
+    ctx.fillText(formatTimeLabel(points[idx].ts), x, cssH - padB + 6);
+  }
+
+  // 折线 + 填充
+  const xAt = (idx) => padL + (plotW * idx) / (n > 1 ? n - 1 : 1);
+  const yAt = (v) => padT + plotH - (plotH * v) / niceMax;
+
+  ctx.beginPath();
+  ctx.moveTo(xAt(0), yAt(points[0].value));
+  for (let i = 1; i < n; i++) ctx.lineTo(xAt(i), yAt(points[i].value));
+  ctx.strokeStyle = '#2563eb';
+  ctx.lineWidth = 2;
+  ctx.lineJoin = 'round';
+  ctx.stroke();
+
+  ctx.lineTo(xAt(n - 1), padT + plotH);
+  ctx.lineTo(xAt(0), padT + plotH);
+  ctx.closePath();
+  ctx.fillStyle = 'rgba(37, 99, 235, .12)';
+  ctx.fill();
+}
+
+// 重置用量
+$('btn-reset-usage').addEventListener('click', async () => {
+  tokenUsage = { prompt: 0, completion: 0, total: 0, requests: 0 };
+  tokenHistory = [];
+  renderUsageSummary();
+  drawUsageChart();
+  await sendMsg({ type: 'RESET_TOKEN_USAGE' });
+  setStatus('已重置 token 用量', false, true);
+});
+
+// —— 页面缓存 ——
 
 // 渲染站点规则列表（host + autoApply + keepCache + 删除）
 function renderSiteSettings() {
@@ -137,110 +415,27 @@ function renderCacheList() {
   });
 }
 
-// 渲染 token 用量
-function renderUsage() {
-  $('usage-prompt').textContent = tokenUsage.prompt || 0;
-  $('usage-completion').textContent = tokenUsage.completion || 0;
-  $('usage-total').textContent = tokenUsage.total || 0;
-  $('usage-requests').textContent = tokenUsage.requests || 0;
-}
-
-// 从 GET_STATE 刷新站点规则 / 缓存 / token 用量
-async function refreshState() {
+// 从 GET_STATE 刷新站点规则 / 缓存
+async function refreshCache() {
   const state = await sendMsg({ type: 'GET_STATE' });
-  if (state) {
-    if (state.siteSettings) siteSettings = state.siteSettings;
-    if (state.pageCache) pageCache = state.pageCache;
-    if (state.tokenUsage) tokenUsage = state.tokenUsage;
-  }
+  applyMirrors(state);
   renderSiteSettings();
   renderCacheList();
-  renderUsage();
 }
 
-// 从后台读取配置并填充表单
-async function load() {
-  // 配置：优先 GET_STATE.config，其次 GET_CONFIG
-  let cfg = {};
+// 全局缓存开关即时保存（合并保留其他配置）
+async function saveCacheFlags() {
   const state = await sendMsg({ type: 'GET_STATE' });
-  if (state && state.config) cfg = state.config;
-  else cfg = (await sendMsg({ type: 'GET_CONFIG' })) || {};
-
-  $('apiKey').value = cfg.apiKey || '';
-  $('baseUrl').value = cfg.baseUrl || 'https://api.deepseek.com';
-  $('model').value = cfg.model || 'deepseek-chat';
-  $('targetLang').value = cfg.targetLang || '简体中文';
-  $('chunkChars').value = cfg.chunkChars || 6000;
-  $('concurrency').value = cfg.concurrency || 3;
-  // 默认模式
-  const radio = document.querySelector('input[name="defaultMode"][value="' + (cfg.defaultMode || 'translated') + '"]');
-  if (radio) radio.checked = true;
-  // 缓存开关：keepCache 默认 true，autoApplyCache 默认 false
-  $('keepCache').checked = cfg.keepCache !== false;
-  $('autoApplyCache').checked = !!cfg.autoApplyCache;
-  await refreshState();
+  const base = state && state.config ? state.config : {};
+  const cfg = Object.assign({}, base, {
+    keepCache: $('keepCache').checked,
+    autoApplyCache: $('autoApplyCache').checked
+  });
+  await sendMsg({ type: 'SET_CONFIG', config: cfg });
 }
 
-// 获取模型列表并填充 datalist（保留手动输入能力）
-async function fetchModels() {
-  const cfg = collectForm();
-  const err = validate(cfg);
-  if (err) { setStatus(err, true); return; }
-  if (!cfg.apiKey) { setStatus('请先填写 API Key', true); return; }
-  setStatus('获取模型中…');
-  // 先保存当前表单，再让后台用该配置请求
-  await sendMsg({ type: 'SET_CONFIG', config: cfg });
-  await ensureHostPermission(cfg.baseUrl);
-  const res = await sendMsg({ type: 'GET_MODELS' });
-  if (!res || !res.ok) { setStatus('获取模型失败：' + ((res && res.error) || '未知错误'), true); return; }
-  const list = $('model-list');
-  list.innerHTML = '';
-  for (const m of (res.models || [])) {
-    const opt = document.createElement('option');
-    opt.value = m.id;
-    list.appendChild(opt);
-  }
-  if (res.models && res.models.length) setStatus('已获取 ' + res.models.length + ' 个模型，输入框下拉可选', false, true);
-  else setStatus('未返回任何模型', true);
-}
-
-// 默认模式 / 缓存开关改动后即时保存
-function bindInstantSave() {
-  const save = async () => {
-    const cfg = collectForm();
-    if (validate(cfg)) return; // 数字字段不完整时跳过，仍可点「保存」
-    await sendMsg({ type: 'SET_CONFIG', config: cfg });
-  };
-  document.querySelectorAll('input[name="defaultMode"]').forEach((r) => r.addEventListener('change', save));
-  $('keepCache').addEventListener('change', save);
-  $('autoApplyCache').addEventListener('change', save);
-}
-
-$('form').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const cfg = collectForm();
-  const err = validate(cfg);
-  if (err) { setStatus(err, true); return; }
-  await sendMsg({ type: 'SET_CONFIG', config: cfg });
-  await ensureHostPermission(cfg.baseUrl);
-  setStatus('已保存', false, true);
-});
-
-$('btn-test').addEventListener('click', async () => {
-  const cfg = collectForm();
-  const err = validate(cfg);
-  if (err) { setStatus(err, true); return; }
-  if (!cfg.apiKey) { setStatus('请先填写 API Key', true); return; }
-  setStatus('测试中…');
-  // 先保存当前表单，再让后台用该配置测试
-  await sendMsg({ type: 'SET_CONFIG', config: cfg });
-  await ensureHostPermission(cfg.baseUrl);
-  const res = await sendMsg({ type: 'TEST_API' });
-  if (res && res.ok) setStatus('连接成功 ✔', false, true);
-  else setStatus('连接失败：' + ((res && res.error) || '未知错误'), true);
-});
-
-$('btn-models').addEventListener('click', fetchModels);
+$('keepCache').addEventListener('change', saveCacheFlags);
+$('autoApplyCache').addEventListener('change', saveCacheFlags);
 
 // 添加站点规则（默认 autoApply=false, keepCache=true）
 $('btn-add-site').addEventListener('click', async () => {
@@ -303,13 +498,22 @@ $('file-import').addEventListener('change', async (e) => {
   }
 });
 
-// 重置 token 用量
-$('btn-reset-usage').addEventListener('click', async () => {
-  tokenUsage = { prompt: 0, completion: 0, total: 0, requests: 0 };
-  renderUsage();
-  await sendMsg({ type: 'RESET_TOKEN_USAGE' });
-  setStatus('已重置 token 用量', false, true);
+// —— 初始化 ——
+
+async function init() {
+  const state = await sendMsg({ type: 'GET_STATE' });
+  if (state && state.config) fillForm(state.config);
+  applyMirrors(state);
+  renderUsageSummary();
+  drawUsageChart();
+  renderSiteSettings();
+  renderCacheList();
+  switchTab('basic');
+}
+
+// tab 切换事件
+document.querySelectorAll('.tab').forEach((btn) => {
+  btn.addEventListener('click', () => switchTab(btn.dataset.tab));
 });
 
-bindInstantSave();
-load();
+init();

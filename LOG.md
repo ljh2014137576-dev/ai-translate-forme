@@ -43,3 +43,11 @@
 - manifest 新增 content_scripts(document_idle 注入，支撑缓存自动应用)，version 0.2.0。
 - 审查修复: ① content 默认模式统一为 translated；② 站点键统一用 hostname(忽略端口)；③ token 字段映射修正(prompt_tokens 等)。
 - e2e(真实 Chromium): 自动翻译、三模式切换、进度条结构、缓存命中不调 API、内容变更自动重翻、token 累计、清缓存 全部通过；旧 e2e(翻译/还原/设置)无回归。
+
+## v0.2.1 — 2026-08-08
+- 设置页拆分为三个分页: 基础设置 / 用量面板 / 页面缓存(tab 导航，默认基础设置)。
+- 用量面板: 纯 JS 手绘折线图(canvas，≤30 条逐请求、>30 条按天聚合最近 30 天，DPR 适配，k/M 缩写)；汇总卡片(prompt/completion/total/requests)；费用估算 = prompt/1e6*输入单价 + completion/1e6*输出单价(单价默认 deepseek-chat 官方价 0.27/1.10，可改并即时保存，小额保留 6 位小数)。
+- 后台新增: tokenHistory 时间序列(每次请求的 ts/prompt/completion/total，最近 1000 条)随 GET_STATE 返回；config 增加 inputPricePerM/outputPricePerM。
+- 页面缓存 tab 承接原缓存管理(全局开关/站点规则/列表/清空/导出导入)。
+- 备注: 子代理交付的 options.js 因补丁传输损坏(重复 8 次)，由主代理基于 options.html/css 干净重写并 e2e 验证。
+- e2e(真实 Chromium): 三 tab、折线图有绘制像素、汇总/费用($20.0000 断言)、tokenHistory、模型获取、语言 15 项、缓存命中/变更重翻/三模式 全部通过。

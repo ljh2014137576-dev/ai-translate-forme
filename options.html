@@ -2,29 +2,49 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>AI 网页翻译 - 设置</title>
   <link rel="stylesheet" href="options.css">
 </head>
 <body>
-  <div class="layout">
-    <div class="left">
-      <h1>AI 网页翻译设置</h1>
-      <form id="form">
-        <label>DeepSeek API Key
+  <div class="page">
+    <h1>AI 网页翻译设置</h1>
+
+    <!-- 顶部 tab 导航 -->
+    <nav class="tabs">
+      <button type="button" class="tab active" data-tab="basic">基础设置</button>
+      <button type="button" class="tab" data-tab="usage">用量面板</button>
+      <button type="button" class="tab" data-tab="cache">页面缓存</button>
+    </nav>
+
+    <!-- Tab 1：基础设置 -->
+    <section class="tab-page active" id="page-basic">
+      <form id="form" autocomplete="off">
+        <div class="field">
+          <label for="apiKey">API Key</label>
           <input type="password" id="apiKey" placeholder="sk-...（仅保存在本地浏览器）" autocomplete="off">
-        </label>
-        <label>Base URL
-          <input type="text" id="baseUrl" placeholder="https://api.deepseek.com">
-        </label>
-        <label>模型
+          <p class="hint">DeepSeek 密钥，访问 platform.deepseek.com → API Keys 创建，仅保存在本地。</p>
+        </div>
+
+        <div class="field">
+          <label for="baseUrl">Base URL</label>
+          <input type="text" id="baseUrl" placeholder="https://api.deepseek.com" autocomplete="off">
+          <p class="hint">接口地址，默认 https://api.deepseek.com 即可；只有用自建代理/中转时才需要修改。</p>
+        </div>
+
+        <div class="field">
+          <label for="model">模型</label>
           <span class="row">
-            <input type="text" id="model" list="model-list" placeholder="deepseek-chat">
+            <input type="text" id="model" list="model-list" placeholder="deepseek-chat" autocomplete="off">
             <datalist id="model-list"></datalist>
             <button type="button" id="btn-models" class="btn small">获取模型</button>
           </span>
-        </label>
-        <label>目标语言
-          <input type="text" id="targetLang" list="lang-list" placeholder="简体中文">
+          <p class="hint">DeepSeek 模型名，默认 deepseek-chat；点击「获取模型」自动拉取账号可用模型，支持下拉选择或手动输入。</p>
+        </div>
+
+        <div class="field">
+          <label for="targetLang">目标语言</label>
+          <input type="text" id="targetLang" list="lang-list" placeholder="简体中文" autocomplete="off">
           <datalist id="lang-list">
             <option value="简体中文">
             <option value="繁體中文">
@@ -42,27 +62,29 @@
             <option value="العربية">
             <option value="हिन्दी">
           </datalist>
-        </label>
-        <label>每批字符数
-          <input type="number" id="chunkChars" min="100" max="20000" step="100" placeholder="6000">
-        </label>
-        <label>并发数
-          <input type="number" id="concurrency" min="1" max="10" step="1" placeholder="3">
-        </label>
+          <p class="hint">网页文字要翻译成的目标语言，支持输入或下拉选择。</p>
+        </div>
 
-        <div class="section">
-          <h2>默认模式</h2>
+        <div class="field">
+          <label>默认模式</label>
           <div class="radio-row">
-            <label class="radio"><input type="radio" name="defaultMode" value="original" checked> 原文</label>
+            <label class="radio"><input type="radio" name="defaultMode" value="original"> 原文</label>
             <label class="radio"><input type="radio" name="defaultMode" value="translated"> 译文</label>
             <label class="radio"><input type="radio" name="defaultMode" value="bilingual"> 双语</label>
           </div>
+          <p class="hint">打开弹窗时默认高亮的显示模式：原文 / 译文 / 双语。</p>
         </div>
 
-        <div class="section">
-          <h2>缓存</h2>
-          <label class="check"><input type="checkbox" id="keepCache" checked> 保留翻译缓存</label>
-          <label class="check"><input type="checkbox" id="autoApplyCache"> 打开网站自动应用缓存</label>
+        <div class="field">
+          <label for="chunkChars">每批字符数</label>
+          <input type="number" id="chunkChars" min="100" max="20000" step="100" placeholder="6000">
+          <p class="hint">每个 API 请求携带的源文本字符数，范围 100~20000；越大请求次数越少但单次更慢。</p>
+        </div>
+
+        <div class="field">
+          <label for="concurrency">并发数</label>
+          <input type="number" id="concurrency" min="1" max="10" step="1" placeholder="3">
+          <p class="hint">同时发出的请求数量，范围 1~10；越大越快但更容易触发限流。</p>
         </div>
 
         <div class="actions">
@@ -70,18 +92,71 @@
           <button type="button" id="btn-test" class="btn">测试连接</button>
         </div>
       </form>
+    </section>
+
+    <!-- Tab 2：用量面板 -->
+    <section class="tab-page" id="page-usage">
+      <div class="section">
+        <h2 class="section-title">用量趋势</h2>
+        <div class="chart-wrap" id="usage-chart-wrap">
+          <canvas id="usage-chart"></canvas>
+          <div class="chart-empty" id="usage-empty">暂无用量数据</div>
+        </div>
+      </div>
 
       <div class="section">
-        <h2>站点规则</h2>
+        <h2 class="section-title">用量汇总</h2>
+        <div class="usage-grid">
+          <span class="usage-item"><b id="usage-prompt">0</b> prompt</span>
+          <span class="usage-item"><b id="usage-completion">0</b> completion</span>
+          <span class="usage-item"><b id="usage-total">0</b> total</span>
+          <span class="usage-item"><b id="usage-requests">0</b> requests</span>
+        </div>
+      </div>
+
+      <div class="section">
+        <h2 class="section-title">费用估算</h2>
+        <div class="price-row">
+          <div class="field">
+            <label for="inputPrice">输入单价（每百万 token，USD）</label>
+            <input type="number" id="inputPrice" min="0" step="0.01" placeholder="0.27">
+          </div>
+          <div class="field">
+            <label for="outputPrice">输出单价（每百万 token，USD）</label>
+            <input type="number" id="outputPrice" min="0" step="0.01" placeholder="1.10">
+          </div>
+        </div>
+        <p class="hint">默认按 deepseek-chat 官方价，可修改；修改后即时保存。</p>
+        <p class="cost-line">估算费用：<b id="cost-estimate">$0.0000 USD</b></p>
+      </div>
+
+      <div class="section">
+        <button type="button" id="btn-reset-usage" class="btn small full">重置用量</button>
+      </div>
+    </section>
+
+    <!-- Tab 3：页面缓存 -->
+    <section class="tab-page" id="page-cache">
+      <div class="section">
+        <h2 class="section-title">全局开关</h2>
+        <label class="check"><input type="checkbox" id="keepCache" checked> 保留翻译缓存</label>
+        <p class="hint">翻译结果按页面保存到本地，重复打开同一页面可直接复用，节省 token。</p>
+        <label class="check"><input type="checkbox" id="autoApplyCache"> 打开网站自动应用缓存</label>
+        <p class="hint">打开已缓存的网站时自动应用翻译缓存，无需手动点击翻译。</p>
+      </div>
+
+      <div class="section">
+        <h2 class="section-title">站点规则</h2>
         <div class="row">
-          <input type="text" id="siteHost" placeholder="例：example.com">
+          <input type="text" id="siteHost" placeholder="例：example.com" autocomplete="off">
           <button type="button" id="btn-add-site" class="btn small">添加</button>
         </div>
+        <p class="hint">按站点单独设置「自动应用」与「保留缓存」，可覆盖全局设置；修改后即时保存。</p>
         <div id="site-list" class="list"></div>
       </div>
 
       <div class="section">
-        <h2>页面缓存</h2>
+        <h2 class="section-title">缓存列表</h2>
         <div class="row">
           <button type="button" id="btn-clear-cache" class="btn small">清空全部</button>
         </div>
@@ -89,43 +164,17 @@
       </div>
 
       <div class="section">
-        <h2>缓存导入导出</h2>
+        <h2 class="section-title">缓存导入导出</h2>
         <div class="row">
           <button type="button" id="btn-export" class="btn small">导出缓存</button>
           <button type="button" id="btn-import" class="btn small">导入缓存</button>
           <input type="file" id="file-import" accept=".json,application/json" hidden>
         </div>
+        <p class="hint">导出为 ai-translate-cache.json；导入时兼容「{pageCache:...}」与直接映射两种格式。</p>
       </div>
+    </section>
 
-      <div class="section">
-        <h2>Token 用量</h2>
-        <div class="usage-grid">
-          <span class="usage-item"><b id="usage-prompt">0</b> prompt</span>
-          <span class="usage-item"><b id="usage-completion">0</b> completion</span>
-          <span class="usage-item"><b id="usage-total">0</b> total</span>
-          <span class="usage-item"><b id="usage-requests">0</b> requests</span>
-        </div>
-        <button type="button" id="btn-reset-usage" class="btn small full">重置用量</button>
-      </div>
-
-      <div id="status" class="status"></div>
-    </div>
-    <aside class="right">
-      <h2>参数说明</h2>
-      <dl>
-        <dt>API Key</dt><dd>DeepSeek 密钥：访问 platform.deepseek.com → API Keys 创建。仅保存在本地浏览器。</dd>
-        <dt>Base URL</dt><dd>接口地址，默认 https://api.deepseek.com 即可；只有用自建代理/中转时才需要改。</dd>
-        <dt>模型</dt><dd>DeepSeek 模型名，默认 deepseek-chat。点「获取模型」自动拉取你账号可用的模型列表，支持下拉选择或手动输入。</dd>
-        <dt>目标语言</dt><dd>网页文字要翻译成的语言，例如：简体中文、English、日本語。输入框支持搜索与下拉选择。</dd>
-        <dt>每批字符数</dt><dd>每个 API 请求携带的源文本字符数。越大请求次数越少但单次更慢；普通页面默认即可。</dd>
-        <dt>并发数</dt><dd>同时发出的请求数量。越大越快但更容易触发限流，默认 3 已平衡速度与稳定。</dd>
-        <dt>默认模式</dt><dd>打开弹窗时默认高亮的显示模式：原文 / 译文 / 双语，与页面脚本配合切换展示。</dd>
-        <dt>保留缓存</dt><dd>翻译结果按页面保存到本地，重复打开同一页面可直接复用，节省 token。</dd>
-        <dt>自动应用</dt><dd>打开已缓存的网站时自动应用翻译缓存，无需手动点击翻译。</dd>
-        <dt>站点规则</dt><dd>按站点单独设置「自动应用」与「保留缓存」，可覆盖全局设置；修改后即时保存。</dd>
-        <dt>Token 用量</dt><dd>统计调用模型消耗的 prompt / completion / total 与请求次数，可随时重置。</dd>
-      </dl>
-    </aside>
+    <div id="status" class="status"></div>
   </div>
   <script src="options.js"></script>
 </body>

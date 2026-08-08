@@ -10,7 +10,9 @@ const DEFAULT_CONFIG = {
   concurrency: 3,
   defaultMode: 'translated', // original | translated | bilingual
   keepCache: true,           // 默认开启页面缓存
-  autoApplyCache: false      // 默认不自动套用缓存
+  autoApplyCache: false,     // 默认不自动套用缓存
+  inputPricePerM: 0.27,      // 每百万输入 token 价格（USD，默认按 deepseek-chat 官方价）
+  outputPricePerM: 1.10      // 每百万输出 token 价格（USD）
 };
 
 const CHUNK_MAX_ITEMS = 500;     // 每批最多条数
@@ -45,9 +47,9 @@ function parseTranslations(content, chunk) {
   return out;
 }
 
-// 累加 tokenUsage（读取→累加→写回 chrome.storage.local）
+// 累加 tokenUsage 并记录 tokenHistory 用量时间序列（读取→累加→写回 chrome.storage.local）
 async function addTokenUsage(usage) {
-  const stored = await chrome.storage.local.get('tokenUsage');
+  const stored = await chrome.storage.local.get(['tokenUsage', 'tokenHistory']);
   const cur = stored.tokenUsage || { prompt: 0, completion: 0, total: 0, requests: 0 };
   const next = {
     prompt: (cur.prompt || 0) + (usage.prompt || 0),
@@ -55,7 +57,14 @@ async function addTokenUsage(usage) {
     total: (cur.total || 0) + (usage.total || 0),
     requests: (cur.requests || 0) + 1
   };
-  await chrome.storage.local.set({ tokenUsage: next });
+  // 追加一条用量记录到 tokenHistory，仅保留最近 1000 条
+  const history = (stored.tokenHistory || []).concat({
+    ts: Date.now(),
+    prompt: usage.prompt || 0,
+    completion: usage.completion || 0,
+    total: usage.total || 0
+  }).slice(-1000);
+  await chrome.storage.local.set({ tokenUsage: next, tokenHistory: history });
 }
 
 // 调用 DeepSeek（OpenAI 兼容 POST {baseUrl}/chat/completions），成功后累加用量
@@ -339,13 +348,14 @@ async function handleSetMode(msg) {
 
 // 获取全量状态（配置、站点设置、缓存、用量）
 async function handleGetState() {
-  const stored = await chrome.storage.local.get(['siteSettings', 'pageCache', 'tokenUsage']);
+  const stored = await chrome.storage.local.get(['siteSettings', 'pageCache', 'tokenUsage', 'tokenHistory']);
   return {
     ok: true,
     config: await getConfig(),
     siteSettings: stored.siteSettings || {},
     pageCache: stored.pageCache || {},
-    tokenUsage: stored.tokenUsage || { prompt: 0, completion: 0, total: 0, requests: 0 }
+    tokenUsage: stored.tokenUsage || { prompt: 0, completion: 0, total: 0, requests: 0 },
+    tokenHistory: stored.tokenHistory || []
   };
 }
 
