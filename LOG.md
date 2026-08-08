@@ -19,3 +19,12 @@
 - 新增 scripts/pack-crx.mjs: 无依赖打包 CRX3(RSA-2048 签名，自校验)。
 - 产出 ai-translate-forme.crx(29,966 bytes, 12 文件)，扩展 ID fnedaohmonblnoilboadichjfekojngi。
 - .gitignore 增加 *.crx / *.pem(私钥不入库)。
+
+## v0.1.2 — 2026-08-08
+- 修复 CRX 打包 bug(用户实测报 CRX_REQUIRED_PROOF_MISSING):
+  1. SignedData.crx_id 必须是 SHA256(SPKI公钥) 前 16 字节的原始字节(此前误用 32 字符 a-p 字符串)，导致 Chrome 不认可 rsa proof。
+  2. 签名输入必须为 "CRX3 SignedData\x00" + 4字节LE(signed_header_data长度) + signed_header_data + zip(此前漏了长度字段)。
+  依据: chromium 源码 components/crx_file/crx3.proto + crx_verifier.cc + id_util.cc(GenerateIdFromHex 不重哈希，直接 hex→a-p 映射)。
+- 新增 scripts/verify-crx.mjs: 按 Chrome 算法独立校验任意 CRX3(crx_id 匹配 + RSA-SHA256 签名)。
+- 交叉验证: 用 crx3 npm 包(独立实现)以同一密钥生成的 CRX 与本 CRX 均通过 verify-crx.mjs(idOk/sigOk 全 true)。
+- 同一 .pem 密钥复用，扩展 ID 保持 fnedaohmonblnoilboadichjfekojngi 不变。

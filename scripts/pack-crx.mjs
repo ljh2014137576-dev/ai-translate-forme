@@ -15,6 +15,7 @@ function collect(dir) {
   const out = [];
   for (const name of readdirSync(dir)) {
     if (EXCLUDE.has(name)) continue;
+    if (name.endsWith(".crx") || name.endsWith(".pem")) continue; // 排除自身产物/私钥
     const p = join(dir, name);
     const st = statSync(p);
     if (st.isDirectory()) out.push(...collect(p));
@@ -94,10 +95,13 @@ function extIdFromKey(pubDer) {
   for (let i = 0; i < 16; i++) { id += alpha[h[i] >> 4]; id += alpha[h[i] & 0xf]; }
   return id;
 }
-const crxId = Buffer.from(extIdFromKey(publicKeyDer), "utf8");
+// crx_id = SHA256(SPKI公钥) 前16字节的原始字节(Chrome 要求)
+const crxId = createHash("sha256").update(publicKeyDer).digest().subarray(0, 16);
 const signedData = signedDataProto(crxId);
+// 签名数据 = "CRX3 SignedData\x00" + 4字节LE(signed_header_data长度) + signed_header_data + zip
+const toSign = Buffer.concat([Buffer.from("CRX3 SignedData\x00", "utf8"), u32(signedData.length), signedData, zip]);
 const signer = createSign("RSA-SHA256");
-signer.update(Buffer.concat([Buffer.from("CRX3 SignedData\x00", "utf8"), signedData, zip]));
+signer.update(toSign);
 const signature = signer.sign(createPrivateKey(privateKeyPem));
 const header = headerProto(publicKeyDer, signature, signedData);
 
@@ -134,8 +138,12 @@ function verifyCrx(buf) {
   const pubKey = readField(proof, 1);
   const sig = readField(proof, 2);
   const sdata = readField(hbuf, 10000);
-  const ok = verify("RSA-SHA256", Buffer.concat([Buffer.from("CRX3 SignedData\x00", "utf8"), sdata, zipBuf]), { key: pubKey, format: "der", type: "spki" }, sig);
-  return { ok, id: extIdFromKey(pubKey) };
+  const signed = signedDataProto(createHash("sha256").update(pubKey).digest().subarray(0, 16));
+  const data = Buffer.concat([Buffer.from("CRX3 SignedData\x00", "utf8"), u32(sdata.length), sdata, zipBuf]);
+  const ok = verify("RSA-SHA256", data, { key: pubKey, format: "der", type: "spki" }, sig);
+  const sdId = readField(sdata, 1);
+  const idOk = sdId.length === 16 && sdId.equals(createHash("sha256").update(pubKey).digest().subarray(0, 16));
+  return { ok: ok && idOk, id: extIdFromKey(pubKey) };
 }
 const check = verifyCrx(crx);
 console.log("self-verify: " + (check.ok ? "OK" : "FAILED") + " (id " + check.id + ")");
