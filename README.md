@@ -51,6 +51,17 @@
 4. **解析**：模型返回 `{"translations": {"id": "译文", ...}}`（兼容直接映射与 ```json 代码块包裹），后台汇总后回传
 5. **回填**：content.js 把译文写回对应文本节点；「还原原文」用保存的原始文本恢复；页面刷新后原始记录自然失效
 
+
+## 打包为 CRX
+
+```bash
+node scripts/pack-crx.mjs "G:\ai-translate-forme" "G:\ai-translate-forme\ai-translate-forme.crx"
+```
+
+- 首次运行会生成 `G:\ai-translate-forme.pem` 私钥(与目录同级，**切勿提交到 git**)，之后版本复用同一密钥，扩展 ID 保持稳定。
+- 安装 `.crx`: 打开 `chrome://extensions` → 开启右上角「开发者模式」→ 把 `.crx` 文件拖进页面，按提示确认添加。
+- 品牌版 Chrome 137+ 已移除命令行 `--load-extension`，命令行加载仅适用于 Chromium/Chrome for Testing；拖入安装不受影响。
+
 ## 目录结构
 
 ```

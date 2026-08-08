@@ -14,3 +14,8 @@
   - 真实 Chromium(Playwright chromium-1234)端到端: mock DeepSeek API → 5 段全部替换，code/pre/隐藏/纯数字正确跳过；还原原文 OK；重复翻译 OK。
   - 备注: 品牌版 Google Chrome 137+ 已移除 --load-extension/--disable-extensions-except，命令行加载扩展需用 Chromium/Chrome for Testing；用户手动安装走 chrome://extensions「加载已解压的扩展程序」不受影响。
 - 说明: 本文件由主代理维护，每次发版追加记录。
+
+## v0.1.1 — 2026-08-08
+- 新增 scripts/pack-crx.mjs: 无依赖打包 CRX3(RSA-2048 签名，自校验)。
+- 产出 ai-translate-forme.crx(29,966 bytes, 12 文件)，扩展 ID fnedaohmonblnoilboadichjfekojngi。
+- .gitignore 增加 *.crx / *.pem(私钥不入库)。
