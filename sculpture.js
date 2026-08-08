@@ -11,18 +11,20 @@
 
   /* ======================= 常量 ======================= */
   var PANELS = 150;          // 面板数量 N
-  var SPRING_RADIUS = 3.5;   // 弹簧半径
+  var SPRING_RADIUS = 8;     // 弹簧半径(放大，视觉更突出)
   var COILS = 2;             // 弹簧圈数
-  var SPRING_HEIGHT = 22;    // 弹簧总高度（y 范围 -11 ~ 11）
-  var CAMERA_DIST = 46;      // 相机距离
+  var SPRING_HEIGHT = 30;    // 弹簧总高度（y 范围 -15 ~ 15）
+  var CAMERA_DIST = 36;      // 相机距离(更近，透视更强、体量更大)
   var FOV = 46;              // 透视视场常数：proj = FOV / (FOV + 深度)
-  var ROT_Y_SPEED = 0.12;    // 基础绕 Y 自转速度（rad/s）
+  var BASE_TILT = -0.62;   // 基础俯仰：让弹簧立起、冲向观众（更立体更突出）
+  var BASE_ROLL = 0.35;    // 基础滚转：画面斜切，更有动感
+  var ROT_Y_SPEED = 0.16;    // 基础绕 Y 自转速度（rad/s）
   var MOUSE_Y_RANGE = 0.6;   // 鼠标 X 控制绕 Y 的目标偏移范围（±0.6 rad）
   var MOUSE_X_RANGE = 0.35;  // 鼠标 Y 控制绕 X 的俯仰范围（±0.35 rad）
   var LERP = 0.06;           // 鼠标视角平滑系数
-  var FILL_ALPHA = 0.5;      // 主填充透明度 rgba(255,255,255,.5)
+  var FILL_ALPHA = 0.62;     // 主填充透明度（更实，更醒目）
   var GLOW_ALPHA = 0.85;     // 顶部/近处面板提亮透明度
-  var STROKE = 'rgba(160,170,190,.5)'; // 冷色描边（白玻璃质感）
+  var STROKE = 'rgba(0,120,212,.55)';  // Fluent 蓝描边（更突出）
 
   /* ======================= 状态 ======================= */
   var canvas = null;         // 画布元素
@@ -96,7 +98,7 @@
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0); // 用 CSS 像素坐标绘制
     cx = width / 2;
     cy = height / 2;
-    s = height / 22; // 缩放取画布高度相关
+    s = height / 15; // 缩放取画布高度相关（放大，占据画面主体）
   }
 
   /* ======================= 交互 ======================= */
@@ -150,8 +152,9 @@
     ctx.clearRect(0, 0, width, height);
 
     var totalY = rotY + mouseY; // 最终绕 Y 角度（自转 + 鼠标偏移）
-    var totalX = mouseX;        // 最终绕 X 角度（俯仰）
+    var totalX = BASE_TILT + mouseX; // 基础俯仰 + 鼠标俯仰
     var cosY = Math.cos(totalY), sinY = Math.sin(totalY);
+    var cosR = Math.cos(BASE_ROLL), sinR = Math.sin(BASE_ROLL); // 绕 Z 基础滚转
     var cosX = Math.cos(totalX), sinX = Math.sin(totalX);
 
     // 第一步：计算每个面板的 3D 位置并投影，记录深度用于排序
@@ -181,6 +184,10 @@
       var proj = FOV / (FOV + depth);
       var xScreen = cx + xr * proj * s;
       var yScreen = cy + yr * proj * s;
+      // 绕屏幕中心 Z 轴滚转（让雕塑斜切、更动感）
+      var dx = xScreen - cx, dy = yScreen - cy;
+      xScreen = cx + dx * cosR - dy * sinR;
+      yScreen = cy + dx * sinR + dy * cosR;
 
       if (depth < minDepth) minDepth = depth;
       if (depth > maxDepth) maxDepth = depth;
@@ -188,8 +195,8 @@
       panels.push({
         x: xScreen,
         y: yScreen,
-        w: 1.6 * proj * s,          // 面板屏幕宽度
-        h: 1.1 * scale * proj * s,  // 面板屏幕高度（含 scale 渐隐）
+        w: 4.2 * proj * s,          // 面板屏幕宽度（放大）
+        h: 2.4 * scale * proj * s,  // 面板屏幕高度（含 scale 渐隐）
         twist: twist,
         scale: scale,
         depth: depth
@@ -215,7 +222,7 @@
       ctx.translate(p.x, p.y);
       ctx.rotate(p.twist); // 面板的 2D 投影旋转
       ctx.beginPath();
-      roundRectPath(-p.w / 2, -p.h / 2, p.w, p.h, Math.min(3, p.w * 0.25, p.h * 0.25));
+      roundRectPath(-p.w / 2, -p.h / 2, p.w, p.h, Math.min(8, p.w * 0.2, p.h * 0.2));
       ctx.fill();
       ctx.stroke();
       ctx.restore();
