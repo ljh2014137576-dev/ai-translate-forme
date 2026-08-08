@@ -103,3 +103,10 @@
 - 模糊强度滑块(0~80px)保持可拖: applyAcrylic / popup.js 同步为新滤镜链, 拖动后 brightness+saturate 不丢失。
 - manifest version 0.3.0 -> 0.3.4(之前几次发版漏改, 补齐以便拖入 CRX 时识别为更新)。
 - 验证: 5 套 e2e 回归全过(features/usage/options/lazy/multi);computed style 确认 4 面板+popup 均为 blur(40px) brightness(1.2) saturate(0.8)+噪点背景;滑块拖到 60px 实时生效;3D 雕塑仍正常渲染。
+
+## v0.3.5 - 2026-08-08
+- 修复设置页切换标签时整个页面频闪:
+  - 根因: .main 及其祖先均无 position:relative, 失去 .active 的 tab-page 变为 position:absolute(top:0;left:0;right:0) 后以视口为包含块, 瞬间铺满全屏覆盖左侧导航, 再淡出回缩, 观感即"右侧信息栏先占满全屏又被导航限制回去"。
+  - 修复: options.html 将 3 个 tab-page 包进 <div class="tab-pages">, CSS 给 .tab-pages 加 position:relative 作为包含块; 非激活页始终锚定在主列内(不再逃逸到视口)。
+  - 额外: html 加 scrollbar-gutter:stable, 切换不同高度标签时滚动条不出现/消失, 消除居中内容水平位移。
+- 验证: playwright 实测所有 tab-page(激活/非激活/切换中途)宽高均=主列 856px(left=332,right=1188), 不再铺满 1265px 视口; options/usage 两套 e2e 回归通过。

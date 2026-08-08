@@ -5,6 +5,8 @@
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
+html { scrollbar-gutter: stable; }
+
 :root {
   --fluent-bg: #f3f3f3;
   --fluent-primary: #0078d4;
@@ -111,6 +113,9 @@ body {
 }
 .page-header { margin-bottom: 24px; }
 .page-title { font-size: 22px; font-weight: 600; color: var(--fluent-text); letter-spacing: .2px; }
+
+/* —— 内容页容器：作为绝对定位 tab-page 的包含块(修复切页时页面逃逸到全屏视口的频闪) —— */
+.tab-pages { position: relative; }
 
 /* —— 内容页：快速淡入 + 轻微上移的切页动画 —— */
 .tab-page {
