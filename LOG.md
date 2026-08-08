@@ -51,3 +51,10 @@
 - 页面缓存 tab 承接原缓存管理(全局开关/站点规则/列表/清空/导出导入)。
 - 备注: 子代理交付的 options.js 因补丁传输损坏(重复 8 次)，由主代理基于 options.html/css 干净重写并 e2e 验证。
 - e2e(真实 Chromium): 三 tab、折线图有绘制像素、汇总/费用($20.0000 断言)、tokenHistory、模型获取、语言 15 项、缓存命中/变更重翻/三模式 全部通过。
+
+## v0.2.2 — 2026-08-08
+- 设置页与弹窗重构为明日方舟(Arknights)风格: 深蓝灰底 + 双层网格 + 金色辉光、方角面板、金色键帽按钮、左导航金色竖条、clip-path 斜切装饰。
+- 导航改为左侧导航(side-nav + ark-main)，替代原顶部 tab。
+- 大量 CSS 3D 动效: perspective/preserve-3d、切页 rotateY 进出场、卡片/按钮/折线图 hover translateZ+rotateX/Y、按钮按压键帽下沉、背景粒子漂移呼吸、首载逐页浮现、标题金色下划线。
+- options.js / popup.js 功能逻辑零改动(逐字节未变)，全部元素 ID 保留(36+6)，e2e 三套回归全通过。
+- 修复原版潜在缺陷: #usage-chart 由 display:none 改为 block(原样式会让折线图有数据也看不到)。

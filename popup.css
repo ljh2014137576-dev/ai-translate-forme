@@ -1,77 +1,186 @@
-/* AI 网页翻译 — 弹窗样式（浅色简洁风格） */
+/* AI 网页翻译 — 弹窗（明日方舟风 · 深色底 · 3D 键帽按钮） */
 * { margin: 0; padding: 0; box-sizing: border-box; }
-body {
-  width: 260px;
-  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
-  background: #fafafa;
-  color: #1f2328;
-}
-.popup { padding: 14px; }
-.title { font-size: 16px; font-weight: 600; }
-.subtitle { font-size: 12px; color: #8a9199; margin: 2px 0 12px; }
 
-/* 模式切换 segmented 控件 */
+:root {
+  --ark-bg: #0b0e14;
+  --ark-panel: rgba(17, 21, 29, .92);
+  --ark-border: rgba(160, 180, 210, .22);
+  --ark-gold: #d9a441;
+  --ark-gold-soft: rgba(217, 164, 65, .08);
+  --ark-text: #e8ecf3;
+  --ark-body: #8b95a7;
+}
+
+body {
+  width: 280px;
+  position: relative;
+  overflow: hidden;
+  font-family: system-ui, -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+  background-color: var(--ark-bg);
+  /* 40px 主网格 + 8px 细网格 + 顶部金色辉光 */
+  background-image:
+    radial-gradient(130% 70% at 50% -18%, rgba(217, 164, 65, .14), transparent 62%),
+    linear-gradient(rgba(120, 140, 180, .06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(120, 140, 180, .06) 1px, transparent 1px),
+    linear-gradient(rgba(120, 140, 180, .03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(120, 140, 180, .03) 1px, transparent 1px);
+  background-size: auto, 40px 40px, 40px 40px, 8px 8px, 8px 8px;
+  background-repeat: no-repeat, repeat, repeat, repeat, repeat;
+  background-position: 0 0, 0 0, 0 0, 0 0, 0 0;
+  color: var(--ark-body);
+}
+
+/* —— 背景粒子 —— */
+.ark-particles { position: fixed; inset: 0; z-index: 0; pointer-events: none; }
+.dot {
+  position: absolute;
+  width: 3px; height: 3px;
+  border-radius: 50%;
+  background: var(--ark-gold);
+  box-shadow: 0 0 7px rgba(217, 164, 65, .85);
+  opacity: .5;
+  animation: ark-float 9s ease-in-out infinite;
+}
+.dot-1 { top: 12%; left: 16%; animation-duration: 10s; }
+.dot-2 { top: 58%; left: 82%; width: 2px; height: 2px; background: #5ac8fa; box-shadow: 0 0 7px rgba(90, 200, 250, .85); animation-duration: 13s; animation-delay: -3s; }
+.dot-3 { top: 74%; left: 10%; animation-duration: 11s; animation-delay: -6s; }
+@keyframes ark-float {
+  0%, 100% { transform: translateY(0) scale(1); opacity: .4; }
+  50%      { transform: translateY(-22px) scale(1.6); opacity: .9; }
+}
+
+/* —— 弹窗主体：perspective 3D 上下文 —— */
+.popup {
+  position: relative;
+  z-index: 1;
+  padding: 16px 16px 14px;
+  perspective: 900px;
+}
+
+.title {
+  position: relative;
+  padding-bottom: 7px;
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: 2px;
+  color: var(--ark-gold);
+  text-shadow: 0 1px 0 rgba(0, 0, 0, .6);
+}
+.title::after {
+  content: "";
+  position: absolute;
+  left: 0; bottom: 0;
+  width: 100%;
+  height: 2px;
+  background: linear-gradient(90deg, var(--ark-gold), rgba(217, 164, 65, 0));
+}
+.subtitle {
+  margin: 4px 0 12px;
+  font-size: 11px;
+  letter-spacing: 3px;
+  color: var(--ark-body);
+}
+
+/* —— 模式切换 segmented —— */
 .segmented {
   display: flex;
   gap: 4px;
   padding: 3px;
-  margin-bottom: 10px;
-  background: #eceff1;
-  border-radius: 8px;
+  margin-bottom: 12px;
+  background: var(--ark-panel);
+  border: 1px solid var(--ark-border);
+  border-radius: 4px;
 }
 .seg {
   flex: 1;
-  padding: 6px 0;
+  padding: 7px 0;
   border: none;
-  border-radius: 6px;
+  border-radius: 4px;
   background: transparent;
-  color: #57606a;
+  color: var(--ark-body);
   font-size: 12px;
+  letter-spacing: 2px;
   cursor: pointer;
+  transition: transform .18s ease, color .18s ease, background-color .18s ease, box-shadow .18s ease;
 }
-.seg:hover { background: rgba(255, 255, 255, .6); }
+.seg:hover {
+  color: var(--ark-text);
+  background: var(--ark-gold-soft);
+  transform: translateY(-1px);
+}
 .seg.active {
-  background: #fff;
-  color: #1f2328;
+  color: var(--ark-gold);
   font-weight: 600;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, .12);
+  background: rgba(217, 164, 65, .14);
+  box-shadow: inset 0 0 0 1px rgba(217, 164, 65, .4);
+  transform: perspective(500px) translateZ(8px);
 }
 
+/* —— 按钮：主按钮金色键帽 / 次要描边金色 —— */
 .btn {
   display: block;
   width: 100%;
-  padding: 9px 0;
+  padding: 10px 0;
   margin-bottom: 8px;
-  border: 1px solid #d0d7de;
-  border-radius: 6px;
-  background: #fff;
-  cursor: pointer;
+  border: 1px solid rgba(217, 164, 65, .55);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--ark-gold);
   font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 2px;
+  cursor: pointer;
+  transition: transform .16s ease, box-shadow .16s ease, background-color .16s ease, color .16s ease;
 }
-.btn:hover { background: #f3f4f6; }
-.btn.primary { background: #2563eb; border-color: #2563eb; color: #fff; }
-.btn.primary:hover { background: #1d4ed8; }
-.btn:disabled { opacity: .6; cursor: not-allowed; }
+.btn:hover {
+  color: #fff;
+  background: var(--ark-gold-soft);
+  transform: perspective(600px) translateZ(18px) rotateX(1.5deg) rotateY(-1.5deg);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, .45), 0 0 14px rgba(217, 164, 65, .2);
+}
+.btn:active { transform: translateY(2px) scale(.97); box-shadow: none; }
+.btn.primary {
+  background: var(--ark-gold);
+  border-color: var(--ark-gold);
+  color: #14100a;
+  box-shadow: 0 3px 0 rgba(0, 0, 0, .55), inset 0 1px 0 rgba(255, 255, 255, .28);
+}
+.btn.primary:hover { background: #e6b653; color: #14100a; }
+.btn.primary:active {
+  transform: translateY(2px) scale(.97);
+  box-shadow: 0 1px 0 rgba(0, 0, 0, .55), inset 0 1px 0 rgba(255, 255, 255, .15);
+}
+.btn:disabled { opacity: .55; cursor: not-allowed; }
+.btn:focus-visible { outline: 1px solid var(--ark-gold); outline-offset: 2px; }
+
+/* —— 状态 / 链接 / 用量 —— */
 .status {
   min-height: 16px;
+  margin: 2px 0 8px;
+  padding: 4px 8px;
+  border-left: 2px solid rgba(160, 180, 210, .3);
   font-size: 12px;
-  color: #57606a;
-  margin: 4px 0 8px;
+  letter-spacing: 1px;
+  color: var(--ark-body);
   word-break: break-all;
 }
-.status.error { color: #c0392b; }
+.status.error { color: #d9806a; border-left-color: #d9806a; }
 .link {
   display: block;
+  padding: 4px 0;
   text-align: center;
   font-size: 12px;
-  color: #2563eb;
+  letter-spacing: 1px;
+  color: var(--ark-gold);
   text-decoration: none;
   cursor: pointer;
+  transition: color .2s ease, transform .2s ease;
 }
-.link:hover { text-decoration: underline; }
+.link:hover { color: #e6b653; text-decoration: underline; transform: translateX(2px); }
 .token-usage {
   margin-top: 10px;
   text-align: center;
   font-size: 11px;
-  color: #8a9199;
+  letter-spacing: 1px;
+  color: rgba(139, 149, 167, .8);
 }
