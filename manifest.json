@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "AI 网页翻译 (DeepSeek)",
-  "version": "0.3.5",
+  "version": "0.3.6",
   "description": "调用主流 AI 大模型(DeepSeek/OpenAI/Claude/Gemini/通义/Kimi/智谱/豆包)翻译整个网页，支持三种显示模式、页面翻译缓存、token 用量与费用统计。",
   "permissions": [
     "storage",

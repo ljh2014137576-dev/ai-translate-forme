@@ -25,8 +25,9 @@ const DEFAULT_CONFIG = {
   defaultMode: 'translated', // original | translated | bilingual
   keepCache: true,           // 默认开启页面缓存
   autoApplyCache: false,     // 默认不自动套用缓存
-  inputPricePerM: 0.27,      // 每百万输入 token 价格（USD，默认按 deepseek-chat 官方价）
-  outputPricePerM: 1.10,     // 每百万输出 token 价格（USD）
+  inputPricePerM: 1.93,      // 每百万输入 token 价格（CNY，默认按 deepseek-chat 官方价 USD0.27 × 汇率7.15）
+  outputPricePerM: 7.87,     // 每百万输出 token 价格（CNY，USD1.10 × 汇率7.15）
+  usdToCny: 7.15,            // USD→CNY 汇率（官方定价换算人民币用，可设置页修改）
   cacheTtlDays: 7,           // 缓存生命周期天数（默认 7 天）
   acrylicBlur: 40,           // 亚克力模糊强度(px)，设置页可拖动调整
 };
@@ -43,8 +44,22 @@ function buildSystemPrompt(targetLang) {
 
 // 读取配置（与默认值合并）
 async function getConfig() {
-  const stored = await chrome.storage.local.get(DEFAULT_CONFIG);
-  return { ...DEFAULT_CONFIG, ...stored };
+  const stored = await chrome.storage.local.get(null);
+  const cfg = { ...DEFAULT_CONFIG, ...stored };
+  if (stored.usdToCny == null) {
+    // v0.3.6 迁移: 旧版本价格以 USD 存储，首次升级后一次性换算为人民币并持久化
+    cfg.usdToCny = DEFAULT_CONFIG.usdToCny;
+    if (stored.inputPricePerM != null && isFinite(Number(stored.inputPricePerM)) && Number(stored.inputPricePerM) > 0) {
+      cfg.inputPricePerM = Number(stored.inputPricePerM) * cfg.usdToCny;
+    }
+    if (stored.outputPricePerM != null && isFinite(Number(stored.outputPricePerM)) && Number(stored.outputPricePerM) > 0) {
+      cfg.outputPricePerM = Number(stored.outputPricePerM) * cfg.usdToCny;
+    }
+    await chrome.storage.local.set({ usdToCny: cfg.usdToCny, inputPricePerM: cfg.inputPricePerM, outputPricePerM: cfg.outputPricePerM });
+  } else {
+    cfg.usdToCny = isFinite(Number(cfg.usdToCny)) && Number(cfg.usdToCny) > 0 ? Number(cfg.usdToCny) : DEFAULT_CONFIG.usdToCny;
+  }
+  return cfg;
 }
 
 // 去掉可能包裹内容的 ```json 代码块

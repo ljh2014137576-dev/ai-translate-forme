@@ -110,3 +110,11 @@
   - 修复: options.html 将 3 个 tab-page 包进 <div class="tab-pages">, CSS 给 .tab-pages 加 position:relative 作为包含块; 非激活页始终锚定在主列内(不再逃逸到视口)。
   - 额外: html 加 scrollbar-gutter:stable, 切换不同高度标签时滚动条不出现/消失, 消除居中内容水平位移。
 - 验证: playwright 实测所有 tab-page(激活/非激活/切换中途)宽高均=主列 856px(left=332,right=1188), 不再铺满 1265px 视口; options/usage 两套 e2e 回归通过。
+
+## v0.3.6 - 2026-08-08
+- 费用估算改为人民币(CNY)计价:
+  - 单价字段/估算/实际计费全部改为 ¥(每百万 token 单价单位 CNY)。
+  - 新增可配置「USD→CNY 汇率」(默认 7.15, 用量面板可改, 防抖保存): 官方定价为 USD, 选择/输入模型自动按汇率换算成人民币填入单价; API cost 字段(USD)也按汇率换算显示 ¥。
+  - 旧数据自动迁移: 首次升级后把已保存的 USD 单价一次性 ×汇率 换算为 CNY 并持久化, 不重复乘; 未保存过单价则直接用 CNY 默认值(deepseek-chat 1.93/7.87)。
+- 修复用量折线图完全没有折线: 根因是 n=1(仅一次请求或按天聚合为 1 点)时只 moveTo 不划线不画点; 现在每个数据点都画蓝色圆点, 单点也能看到图形。
+- 验证: usage-e2e 费用显示 ¥20.0000; 实测 deepseek-reasoner 自动填 3.9325/15.6585; 图表 n=1 蓝色像素 32、n=5 蓝色像素 1824; 迁移逻辑单测(旧 USD→CNY 一次、不重复乘、默认值不被乘); options/multi e2e 回归通过。

@@ -43,7 +43,8 @@ async function main() {
   await sw.evaluate(() => chrome.storage.local.set({
     apiKey: "sk-test", baseUrl: "http://127.0.0.1:8790", model: "deepseek-chat", targetLang: "简体中文",
     chunkChars: 6000, concurrency: 3, defaultMode: "translated", keepCache: true, autoApplyCache: false,
-    inputPricePerM: 1000000, outputPricePerM: 1000000, // 便于断言: prompt 12 -> $12, completion 8 -> $8
+    inputPricePerM: 1000000, outputPricePerM: 1000000, // 便于断言: prompt 12 -> ¥12, completion 8 -> ¥8
+    usdToCny: 7.15,
     siteSettings: {}, tokenUsage: { prompt: 0, completion: 0, total: 0, requests: 0 }, tokenHistory: []
   }));
 

@@ -10,6 +10,7 @@ let siteSettings = {};                                  // { [host]: { autoApply
 let pageCache = {};                                     // { [pageKey]: { fingerprint, url, title, segments, translations, ts } }
 let tokenUsage = { prompt: 0, completion: 0, total: 0, requests: 0 }; // 累计用量
 let tokenHistory = [];                                  // [{ ts, prompt, completion, total, cost? }] 时间序列（ts 毫秒）
+let usdToCny = 7.15;                                    // USD→CNY 汇率（设置页可改）
 
 // —— 多厂商内置清单（name / baseUrl / models / pricing）——
 // 后台暂未实现 GET_PROVIDERS 时使用该内置清单；若后台返回 providers 则优先采用后台数据。
@@ -239,8 +240,9 @@ function findPricing(provider, modelId) {
 function applyProviderPricing(provider, clearIfNoMatch) {
   const price = findPricing(provider, $('model').value.trim());
   if (price) {
-    $('inputPrice').value = price.input;
-    $('outputPrice').value = price.output;
+    const rate = usdToCny > 0 ? usdToCny : 7.15;
+    $('inputPrice').value = (price.input * rate).toFixed(4).replace(/0+$/, '').replace(/\.$/, '');
+    $('outputPrice').value = (price.output * rate).toFixed(4).replace(/0+$/, '').replace(/\.$/, '');
   } else if (clearIfNoMatch) {
     $('inputPrice').value = '';
     $('outputPrice').value = '';
@@ -271,6 +273,9 @@ function applyMirrors(state) {
 // 用配置填充表单（仅初始化时调用一次）
 function fillForm(cfg) {
   cfg = cfg || {};
+  usdToCny = isFinite(Number(cfg.usdToCny)) && Number(cfg.usdToCny) > 0 ? Number(cfg.usdToCny) : 7.15;
+  const rateEl = $('usdToCny');
+  if (rateEl) rateEl.value = usdToCny;
   $('provider').value = cfg.provider || 'deepseek';
   $('apiKey').value = cfg.apiKey || '';
   $('baseUrl').value = cfg.baseUrl || 'https://api.deepseek.com';
@@ -447,9 +452,9 @@ function calcCost() {
   const prompt = tokenUsage.prompt || 0;
   const completion = tokenUsage.completion || 0;
   const cost = (prompt / 1e6) * (isNaN(ip) ? 0 : ip) + (completion / 1e6) * (isNaN(op) ? 0 : op);
-  // 金额很小时保留 6 位小数，避免显示 $0.0000
+  // 金额很小时保留 6 位小数，避免显示 ¥0.0000
   const digits = cost > 0 && cost < 0.0001 ? 6 : 4;
-  $('cost-estimate').textContent = '$' + cost.toFixed(digits) + ' USD';
+  $('cost-estimate').textContent = '¥' + cost.toFixed(digits);
 }
 
 // 实际计费：tokenHistory 中所有 cost 字段之和；无 cost 数据返回 null
@@ -473,7 +478,8 @@ function renderActualCost() {
     return;
   }
   const digits = sum > 0 && sum < 0.0001 ? 6 : 4;
-  $('cost-actual').textContent = '$' + sum.toFixed(digits) + ' USD';
+  const cny = sum * (usdToCny > 0 ? usdToCny : 7.15);
+  $('cost-actual').textContent = '¥' + cny.toFixed(digits);
 }
 
 // 单价变化：即时重算费用并保存（先 GET_STATE 拿 config 再合并 SET_CONFIG，保留其他配置）
@@ -497,6 +503,23 @@ const bindPrice = (id) => {
 };
 bindPrice('inputPrice');
 bindPrice('outputPrice');
+
+// USD→CNY 汇率变化：防抖保存（不重填用户自定义单价，仅影响官方价换算与实际计费显示）
+let rateSaveTimer = null;
+const rateEl = $('usdToCny');
+if (rateEl) {
+  rateEl.addEventListener('input', () => {
+    usdToCny = parseFloat(rateEl.value);
+    if (!(usdToCny > 0)) usdToCny = 7.15;
+    renderActualCost();
+    clearTimeout(rateSaveTimer);
+    rateSaveTimer = setTimeout(async () => {
+      const state = await sendMsg({ type: 'GET_STATE' });
+      const base = state && state.config ? state.config : {};
+      await sendMsg({ type: 'SET_CONFIG', config: Object.assign({}, base, { usdToCny }) });
+    }, 300);
+  });
+}
 
 // 亚克力模糊强度：应用到 CSS 变量(所有亚克力面板实时生效)，并同步数值显示
 function applyAcrylic(px) {
@@ -630,6 +653,13 @@ function drawUsageChart() {
   ctx.closePath();
   ctx.fillStyle = 'rgba(0, 120, 212, .12)';
   ctx.fill();
+  // 数据点圆点：即使只有 1 个点(或按天聚合为 1 点)也能看到图形
+  ctx.fillStyle = '#0078d4';
+  for (let i = 0; i < n; i++) {
+    ctx.beginPath();
+    ctx.arc(xAt(i), yAt(points[i].value), 3, 0, Math.PI * 2);
+    ctx.fill();
+  }
 }
 
 // 重置用量
