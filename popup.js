@@ -69,6 +69,9 @@ async function init() {
   const state = await sendToBg({ type: 'GET_STATE' });
   // 按配置的 defaultMode 高亮（缺省为原文）
   highlightMode((state && state.config && state.config.defaultMode) || 'translated');
+  // 应用亚克力模糊强度(与设置页同步)
+  const blurPx = (state && state.config && state.config.acrylicBlur) || 40;
+  document.documentElement.style.setProperty('--acrylic-blur', 'blur(' + blurPx + 'px) saturate(160%)');
   // 底部显示 token 用量（后台暂无数据时显示 --）
   const usage = state && state.tokenUsage;
   if (usage && Number.isFinite(usage.total)) {

@@ -27,7 +27,8 @@ const DEFAULT_CONFIG = {
   autoApplyCache: false,     // 默认不自动套用缓存
   inputPricePerM: 0.27,      // 每百万输入 token 价格（USD，默认按 deepseek-chat 官方价）
   outputPricePerM: 1.10,     // 每百万输出 token 价格（USD）
-  cacheTtlDays: 7            // 缓存生命周期天数（默认 7 天）
+  cacheTtlDays: 7,           // 缓存生命周期天数（默认 7 天）
+  acrylicBlur: 40,           // 亚克力模糊强度(px)，设置页可拖动调整
 };
 
 const CHUNK_MAX_ITEMS = 500;     // 每批最多条数

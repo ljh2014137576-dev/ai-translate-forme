@@ -285,6 +285,8 @@ function fillForm(cfg) {
   $('keepCache').checked = cfg.keepCache !== false;
   $('autoApplyCache').checked = !!cfg.autoApplyCache;
   $('cacheTtl').value = cfg.cacheTtlDays || 7;
+  $('acrylicBlur').value = cfg.acrylicBlur != null ? cfg.acrylicBlur : 40;
+  applyAcrylic(cfg.acrylicBlur != null ? cfg.acrylicBlur : 40);
   $('inputPrice').value = cfg.inputPricePerM != null ? cfg.inputPricePerM : 0.27;
   $('outputPrice').value = cfg.outputPricePerM != null ? cfg.outputPricePerM : 1.10;
 }
@@ -307,7 +309,8 @@ function collectForm() {
     defaultMode: mode ? mode.value : 'translated',
     keepCache: $('keepCache').checked,
     autoApplyCache: $('autoApplyCache').checked,
-    cacheTtlDays: Number.isInteger(cacheTtl) && cacheTtl > 0 ? cacheTtl : 7
+    cacheTtlDays: Number.isInteger(cacheTtl) && cacheTtl > 0 ? cacheTtl : 7,
+    acrylicBlur: parseInt($('acrylicBlur').value, 10) || 40,
   };
 }
 
@@ -494,6 +497,27 @@ const bindPrice = (id) => {
 };
 bindPrice('inputPrice');
 bindPrice('outputPrice');
+
+// 亚克力模糊强度：应用到 CSS 变量(所有亚克力面板实时生效)，并同步数值显示
+function applyAcrylic(px) {
+  const v = Math.max(0, Math.min(80, Number(px) || 0));
+  document.documentElement.style.setProperty('--acrylic-blur', 'blur(' + v + 'px) saturate(160%)');
+  const valEl = $('acrylicBlurVal');
+  if (valEl) valEl.textContent = v + 'px';
+}
+// 滑块输入：实时应用 + 防抖保存到配置(合并保留其他字段)
+let blurSaveTimer = null;
+$('acrylicBlur').addEventListener('input', () => {
+  const v = parseInt($('acrylicBlur').value, 10) || 0;
+  applyAcrylic(v);
+  clearTimeout(blurSaveTimer);
+  blurSaveTimer = setTimeout(async () => {
+    const state = await sendMsg({ type: 'GET_STATE' });
+    const base = state && state.config ? state.config : {};
+    await sendMsg({ type: 'SET_CONFIG', config: Object.assign({}, base, { acrylicBlur: v }) });
+  }, 300);
+});
+
 
 // 折线图数据：<=30 条按每次请求逐点；>30 条按天聚合（每天 total 求和）画最近 30 天
 function buildChartPoints() {
@@ -801,6 +825,7 @@ async function init() {
   drawUsageChart();
   renderSiteSettings();
   renderCacheList();
+  applyAcrylic((state && state.config && state.config.acrylicBlur) || 40); // 应用已保存的亚克力模糊强度
   switchTab('basic');
 }
 

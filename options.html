@@ -111,7 +111,16 @@
               <p class="hint">同时发出的请求数量，范围 1~10；越大越快但更容易触发限流。</p>
             </div>
 
-            <div class="actions">
+    
+        <div class="field">
+          <label for="acrylicBlur">亚克力模糊强度</label>
+          <span class="row">
+            <input type="range" id="acrylicBlur" class="range" min="0" max="80" step="2" value="40">
+            <span class="range-val" id="acrylicBlurVal">40px</span>
+          </span>
+          <p class="hint">拖动调整数据面板亚克力材质的模糊程度(0~80px)，数值越高磨砂感越强。</p>
+        </div>
+        <div class="actions">
               <button type="submit" class="btn primary">保存</button>
               <button type="button" id="btn-test" class="btn secondary">测试连接</button>
             </div>
