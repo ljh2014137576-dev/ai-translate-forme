@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>AI 网页翻译 - 设置</title>
+  <link rel="stylesheet" href="options.css">
+</head>
+<body>
+  <div class="container">
+    <h1>AI 网页翻译设置</h1>
+    <form id="form">
+      <label>DeepSeek API Key
+        <input type="password" id="apiKey" placeholder="sk-...（仅保存在本地浏览器）" autocomplete="off">
+      </label>
+      <label>Base URL
+        <input type="text" id="baseUrl" placeholder="https://api.deepseek.com">
+      </label>
+      <label>模型
+        <input type="text" id="model" placeholder="deepseek-chat">
+      </label>
+      <label>目标语言
+        <input type="text" id="targetLang" placeholder="简体中文">
+      </label>
+      <label>每批字符数
+        <input type="number" id="chunkChars" min="100" max="20000" step="100" placeholder="6000">
+      </label>
+      <label>并发数
+        <input type="number" id="concurrency" min="1" max="10" step="1" placeholder="3">
+      </label>
+      <div class="actions">
+        <button type="submit" class="btn primary">保存</button>
+        <button type="button" id="btn-test" class="btn">测试连接</button>
+      </div>
+    </form>
+    <div id="status" class="status"></div>
+  </div>
+  <script src="options.js"></script>
+</body>
+</html>
