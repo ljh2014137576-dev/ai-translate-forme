@@ -1,5 +1,5 @@
 // AI 网页翻译 (DeepSeek) — 后台 Service Worker
-// 职责：配置读写、分批 + 并发调用 DeepSeek（OpenAI 兼容接口）、汇总译文
+// 职责：配置读写、分批 + 并发调用 DeepSeek（OpenAI 兼容接口）、汇总译文、页面缓存、用量统计
 
 const DEFAULT_CONFIG = {
   apiKey: '',
@@ -7,17 +7,20 @@ const DEFAULT_CONFIG = {
   model: 'deepseek-chat',
   targetLang: '简体中文',
   chunkChars: 6000,
-  concurrency: 3
+  concurrency: 3,
+  defaultMode: 'translated', // original | translated | bilingual
+  keepCache: true,           // 默认开启页面缓存
+  autoApplyCache: false      // 默认不自动套用缓存
 };
 
-const CHUNK_MAX_ITEMS = 500; // 每批最多条数
-const FETCH_TIMEOUT_MS = 120000; // 单次请求超时（毫秒）
-const RETRY_TIMES = 1; // 失败自动重试次数
-const TEST_TIMEOUT_MS = 30000; // 测试连接超时（毫秒）
+const CHUNK_MAX_ITEMS = 500;     // 每批最多条数
+const FETCH_TIMEOUT_MS = 120000; // 翻译请求超时（毫秒）
+const RETRY_TIMES = 1;           // 失败自动重试次数
+const TEST_TIMEOUT_MS = 30000;   // 测试/模型等请求超时（毫秒）
 
 // 系统提示（中文），目标语言动态插入
 function buildSystemPrompt(targetLang) {
-  return `你是一名专业的网页翻译引擎。你将收到一个 JSON 数组，每一项是 {id, text}。请把每项的 text 翻译成「${targetLang}」，只返回一个 JSON 对象 {"translations": {"id": "译文", ...}}，id 必须与输入完全一致且条目数一致；不要翻译 URL、路径、代码、变量名、{{占位符}}，原样保留；保留有意义的首尾空白与换行；人名地名按惯例处理。确保输出是合法 JSON。`;
+  return `你是一名专业的网页翻译引擎。你将收到一个 JSON 数组，每一项是 {id, text}。请把每项的 text 翻译成「${targetLang}」，只返回一个 JSON 对象 {"translations": {"id": "译文", ...}}，id 必须与输入完全一致且条数一致；不要翻译 URL、路径、代码、变量名、{占位符}，原样保留；保留有意义的首尾空白与换行；人名地名按惯例处理。确保输出是合法 JSON。`;
 }
 
 // 读取配置（与默认值合并）
@@ -42,7 +45,20 @@ function parseTranslations(content, chunk) {
   return out;
 }
 
-// 调用 DeepSeek（OpenAI 兼容 POST {baseUrl}/chat/completions）
+// 累加 tokenUsage（读取→累加→写回 chrome.storage.local）
+async function addTokenUsage(usage) {
+  const stored = await chrome.storage.local.get('tokenUsage');
+  const cur = stored.tokenUsage || { prompt: 0, completion: 0, total: 0, requests: 0 };
+  const next = {
+    prompt: (cur.prompt || 0) + (usage.prompt || 0),
+    completion: (cur.completion || 0) + (usage.completion || 0),
+    total: (cur.total || 0) + (usage.total || 0),
+    requests: (cur.requests || 0) + 1
+  };
+  await chrome.storage.local.set({ tokenUsage: next });
+}
+
+// 调用 DeepSeek（OpenAI 兼容 POST {baseUrl}/chat/completions），成功后累加用量
 async function fetchTranslations(chunk, cfg) {
   const url = cfg.baseUrl.replace(/\/+$/, '') + '/chat/completions';
   const body = {
@@ -71,7 +87,16 @@ async function fetchTranslations(chunk, cfg) {
     const data = await resp.json();
     const content = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
     if (!content) throw new Error('响应缺少 choices[0].message.content');
-    return parseTranslations(content, chunk);
+    const translations = parseTranslations(content, chunk);
+    const u = data.usage && typeof data.usage === 'object' ? data.usage : {};
+    // OpenAI/DeepSeek 返回 *_tokens 字段，兼容自定义代理可能返回的 prompt/completion/total
+    const usage = {
+      prompt: u.prompt_tokens || u.prompt || 0,
+      completion: u.completion_tokens || u.completion || 0,
+      total: u.total_tokens || u.total || 0
+    };
+    if (data.usage) await addTokenUsage(usage); // 仅当返回 usage 时累计
+    return { translations, usage };
   } finally {
     clearTimeout(timer);
   }
@@ -128,13 +153,50 @@ async function runPool(tasks, concurrency) {
   return results;
 }
 
-// 处理整页翻译：分批 → 并发请求 → 汇总 {translations, errors}
-async function handleTranslate(segments) {
+// 向标签页发送翻译进度（失败静默忽略，勿抛）
+function sendProgress(sender, done, total) {
+  const tabId = sender && sender.tab && sender.tab.id;
+  if (tabId == null) return;
+  chrome.tabs.sendMessage(tabId, { type: 'TRANSLATE_PROGRESS', done, total }).catch(() => {});
+}
+
+// 从 sender.tab.url 取 host（站点设置键）
+function hostOf(sender) {
+  const url = sender && sender.tab && sender.tab.url;
+  if (!url) return '';
+  try { return new URL(url).hostname; } catch (e) { return ''; }
+}
+
+// 成功后按站点覆盖写页面缓存：siteSettings[host]?.keepCache ?? config.keepCache
+async function writePageCache(msg, sender, cfg, segments, translations) {
+  if (!msg.pageKey || !msg.fingerprint) return; // 缺 pageKey / fingerprint 则跳过
+  const host = hostOf(sender);
+  const site = (await chrome.storage.local.get('siteSettings')).siteSettings || {};
+  const keep = site[host] && site[host].keepCache != null ? site[host].keepCache : cfg.keepCache;
+  if (!keep) return;
+  const pageCache = (await chrome.storage.local.get('pageCache')).pageCache || {};
+  pageCache[msg.pageKey] = {
+    fingerprint: msg.fingerprint,
+    url: msg.url || (sender && sender.tab && sender.tab.url) || '',
+    title: msg.title || (sender && sender.tab && sender.tab.title) || '',
+    segments,            // 已去重
+    translations,
+    ts: Date.now()
+  };
+  await chrome.storage.local.set({ pageCache });
+}
+
+// 处理整页翻译：分批 → 并发请求 → 汇总 + 进度 + 缓存
+async function handleTranslate(msg, sender) {
   const cfg = await getConfig();
   if (!cfg.apiKey) return { ok: false, error: '未配置 API Key，请先在设置页填写。' };
-  if (!Array.isArray(segments) || !segments.length) return { ok: true, translations: {}, errors: [], count: 0 };
 
-  // 防御：去重 id，保证全局唯一
+  const segments = msg && msg.segments;
+  if (!Array.isArray(segments) || !segments.length) {
+    return { ok: true, translations: {}, errors: [], count: 0, usage: { prompt: 0, completion: 0, total: 0 } };
+  }
+
+  // 防御：按 id 去重，保证全局唯一
   const seen = new Set();
   const uniq = [];
   for (const s of segments) {
@@ -145,18 +207,44 @@ async function handleTranslate(segments) {
   }
 
   const chunks = chunkSegments(uniq, cfg.chunkChars || DEFAULT_CONFIG.chunkChars);
-  const results = await runPool(chunks.map((ch) => () => translateChunk(ch, cfg)), cfg.concurrency);
+  const total = chunks.length;
+  let done = 0;
+
+  // 每个 chunk 完成后发送进度（成功或失败都算）
+  const tasks = chunks.map((ch) => async () => {
+    const r = await translateChunk(ch, cfg);
+    done++;
+    sendProgress(sender, done, total);
+    return r;
+  });
+  const results = await runPool(tasks, cfg.concurrency);
 
   const translations = {};
   const errors = [];
+  let prompt = 0, completion = 0, totalTokens = 0;
   results.forEach((r, i) => {
-    if (r.ok) Object.assign(translations, r.data);
-    else errors.push({ chunk: i, error: r.error, ids: chunks[i].map((s) => s.id) });
+    if (r.ok) {
+      Object.assign(translations, r.data.translations);
+      prompt += r.data.usage.prompt;
+      completion += r.data.usage.completion;
+      totalTokens += r.data.usage.total;
+    } else {
+      errors.push({ chunk: i, error: r.error, ids: chunks[i].map((s) => s.id) });
+    }
   });
-  return { ok: true, translations, errors, count: uniq.length };
+
+  await writePageCache(msg, sender, cfg, uniq, translations);
+
+  return {
+    ok: true,
+    translations,
+    errors,
+    count: uniq.length,
+    usage: { prompt, completion, total: totalTokens }
+  };
 }
 
-// 测试连接：向 DeepSeek 发送固定文本
+// 测试连接：向 DeepSeek 发送固定文本（30s 超时）
 async function handleTestApi() {
   const cfg = await getConfig();
   if (!cfg.apiKey) return { ok: false, error: '未配置 API Key，请先保存。' };
@@ -190,7 +278,7 @@ async function handleTestApi() {
   }
 }
 
-// 获取模型列表：GET {baseUrl}/models（OpenAI 兼容）
+// 获取模型列表：GET {baseUrl}/models（OpenAI 兼容，30s 超时）
 async function handleGetModels() {
   const cfg = await getConfig();
   if (!cfg.apiKey) return { ok: false, error: '未配置 API Key，请先保存。' };
@@ -215,13 +303,131 @@ async function handleGetModels() {
     return { ok: false, error: e && e.message ? e.message : String(e) };
   }
 }
+
+// —— 缓存 / 站点 / 用量相关消息处理 ——
+
+// 查询页面缓存（fingerprint 匹配才算命中）
+async function handleCheckCache(msg) {
+  const pageCache = (await chrome.storage.local.get('pageCache')).pageCache || {};
+  const cache = pageCache[msg.pageKey];
+  if (cache && cache.fingerprint && cache.fingerprint === msg.fingerprint) {
+    return { ok: true, hit: true, cache };
+  }
+  return { ok: true, hit: false };
+}
+
+// 清缓存：带 pageKey 删单条，否则清空全部
+async function handleClearCache(msg) {
+  if (msg.pageKey) {
+    const pageCache = (await chrome.storage.local.get('pageCache')).pageCache || {};
+    delete pageCache[msg.pageKey];
+    await chrome.storage.local.set({ pageCache });
+  } else {
+    await chrome.storage.local.set({ pageCache: {} });
+  }
+  return { ok: true };
+}
+
+// 切换默认模式（original | translated | bilingual）
+async function handleSetMode(msg) {
+  if (!['original', 'translated', 'bilingual'].includes(msg.mode)) {
+    return { ok: false, error: '无效模式: ' + msg.mode };
+  }
+  await chrome.storage.local.set({ defaultMode: msg.mode });
+  return { ok: true };
+}
+
+// 获取全量状态（配置、站点设置、缓存、用量）
+async function handleGetState() {
+  const stored = await chrome.storage.local.get(['siteSettings', 'pageCache', 'tokenUsage']);
+  return {
+    ok: true,
+    config: await getConfig(),
+    siteSettings: stored.siteSettings || {},
+    pageCache: stored.pageCache || {},
+    tokenUsage: stored.tokenUsage || { prompt: 0, completion: 0, total: 0, requests: 0 }
+  };
+}
+
+// 设置某站点设置（合并现有条目）
+async function handleSetSiteSettings(msg) {
+  if (!msg.host || !msg.settings || typeof msg.settings !== 'object') {
+    return { ok: false, error: '参数缺失: host 或 settings' };
+  }
+  const siteSettings = (await chrome.storage.local.get('siteSettings')).siteSettings || {};
+  const merged = { ...(siteSettings[msg.host] || {}), ...msg.settings };
+  siteSettings[msg.host] = { autoApply: !!merged.autoApply, keepCache: !!merged.keepCache };
+  await chrome.storage.local.set({ siteSettings });
+  return { ok: true };
+}
+
+// 删除某站点设置
+async function handleDelSiteSettings(msg) {
+  const siteSettings = (await chrome.storage.local.get('siteSettings')).siteSettings || {};
+  delete siteSettings[msg.host];
+  await chrome.storage.local.set({ siteSettings });
+  return { ok: true };
+}
+
+// 导出缓存（页面缓存 + 站点设置 + 时间戳）
+async function handleExportCache() {
+  const stored = await chrome.storage.local.get(['pageCache', 'siteSettings']);
+  return {
+    ok: true,
+    data: {
+      pageCache: stored.pageCache || {},
+      siteSettings: stored.siteSettings || {},
+      exportedAt: Date.now()
+    }
+  };
+}
+
+// 导入缓存：Object.assign 合并到现有对象，未提供的键不覆盖
+async function handleImportCache(msg) {
+  const data = msg.data || {};
+  const keys = [];
+  if (data.pageCache) keys.push('pageCache');
+  if (data.siteSettings) keys.push('siteSettings');
+  if (!keys.length) return { ok: true };
+  const cur = await chrome.storage.local.get(keys);
+  const patch = {};
+  if (data.pageCache) patch.pageCache = Object.assign({}, cur.pageCache || {}, data.pageCache);
+  if (data.siteSettings) patch.siteSettings = Object.assign({}, cur.siteSettings || {}, data.siteSettings);
+  await chrome.storage.local.set(patch);
+  return { ok: true };
+}
+
+// 用量清零
+async function handleResetTokenUsage() {
+  await chrome.storage.local.set({ tokenUsage: { prompt: 0, completion: 0, total: 0, requests: 0 } });
+  return { ok: true };
+}
+
 // 消息分发（异步回调前必须 return true 保持通道打开）
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!msg || typeof msg.type !== 'string') return;
   const handle = async () => {
     switch (msg.type) {
       case 'TRANSLATE_PAGE':
-        return handleTranslate(msg.segments);
+        return handleTranslate(msg, sender);
+      case 'CHECK_CACHE':
+        return handleCheckCache(msg);
+      case 'CLEAR_CACHE':
+        return handleClearCache(msg);
+      case 'SET_MODE':
+        return handleSetMode(msg);
+      case 'GET_STATE':
+        return handleGetState();
+      case 'SET_SITE_SETTINGS':
+        return handleSetSiteSettings(msg);
+      case 'DEL_SITE_SETTINGS':
+        return handleDelSiteSettings(msg);
+      case 'EXPORT_CACHE':
+        return handleExportCache();
+      case 'IMPORT_CACHE':
+        return handleImportCache(msg);
+      case 'RESET_TOKEN_USAGE':
+        return handleResetTokenUsage();
       case 'TEST_API':
         return handleTestApi();
       case 'GET_MODELS':

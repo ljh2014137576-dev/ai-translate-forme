@@ -1,9 +1,18 @@
-// AI 网页翻译 — 弹窗逻辑
+// AI 网页翻译 — 弹窗逻辑（翻译 / 还原 / 显示模式 / token 用量）
 const statusEl = document.getElementById('status');
+const tokenEl = document.getElementById('token-usage');
+const modeButtons = Array.from(document.querySelectorAll('.seg[data-mode]'));
 
 function setStatus(text, isError) {
   statusEl.textContent = text;
   statusEl.className = 'status' + (isError ? ' error' : '');
+}
+
+// 高亮当前显示模式按钮
+function highlightMode(mode) {
+  modeButtons.forEach((btn) => {
+    btn.classList.toggle('active', btn.dataset.mode === mode);
+  });
 }
 
 // 获取当前活动标签页
@@ -36,6 +45,56 @@ async function withTab(fn) {
   }
   await fn(tab);
 }
+
+// 发送消息到当前标签页（失败容错）
+async function sendToTab(tabId, msg) {
+  try {
+    return await chrome.tabs.sendMessage(tabId, msg);
+  } catch (e) {
+    return null;
+  }
+}
+
+// 发送消息到后台（失败容错）
+async function sendToBg(msg) {
+  try {
+    return await chrome.runtime.sendMessage(msg);
+  } catch (e) {
+    return null;
+  }
+}
+
+// 弹窗打开：读 GET_STATE → 高亮默认模式 → 校验可注入 → 注入 → 页面模式优先
+async function init() {
+  const state = await sendToBg({ type: 'GET_STATE' });
+  // 按配置的 defaultMode 高亮（缺省为原文）
+  highlightMode((state && state.config && state.config.defaultMode) || 'translated');
+  // 底部显示 token 用量（后台暂无数据时显示 --）
+  const usage = state && state.tokenUsage;
+  if (usage && Number.isFinite(usage.total)) {
+    tokenEl.textContent = '已用 tokens: ' + usage.total;
+  } else {
+    tokenEl.textContent = '已用 tokens: --';
+  }
+  // 校验标签页可注入 → 注入 → 页面当前模式优先（页面未实现 GET_MODE 时保持默认）
+  await withTab(async (tab) => {
+    const res = await sendToTab(tab.id, { type: 'GET_MODE' });
+    if (res && res.mode) highlightMode(res.mode);
+  });
+}
+
+// 模式切换：先高亮当前选择，再通知当前页面
+modeButtons.forEach((btn) => {
+  btn.addEventListener('click', async () => {
+    const mode = btn.dataset.mode;
+    const label = btn.textContent.trim();
+    highlightMode(mode);
+    await withTab(async (tab) => {
+      const res = await sendToTab(tab.id, { type: 'SET_MODE', mode });
+      setStatus(res && res.ok === false ? (res.error || '切换失败') : `已切换为「${label}」模式`, res && res.ok === false);
+    });
+  });
+});
 
 document.getElementById('btn-translate').addEventListener('click', async () => {
   setStatus('处理中…');
@@ -70,3 +129,5 @@ document.getElementById('btn-options').addEventListener('click', (e) => {
   e.preventDefault();
   chrome.runtime.openOptionsPage();
 });
+
+init();

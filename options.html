@@ -24,7 +24,24 @@
           </span>
         </label>
         <label>目标语言
-          <input type="text" id="targetLang" placeholder="简体中文">
+          <input type="text" id="targetLang" list="lang-list" placeholder="简体中文">
+          <datalist id="lang-list">
+            <option value="简体中文">
+            <option value="繁體中文">
+            <option value="English">
+            <option value="日本語">
+            <option value="한국어">
+            <option value="Français">
+            <option value="Deutsch">
+            <option value="Español">
+            <option value="Русский">
+            <option value="Português">
+            <option value="Italiano">
+            <option value="Tiếng Việt">
+            <option value="ไทย">
+            <option value="العربية">
+            <option value="हिन्दी">
+          </datalist>
         </label>
         <label>每批字符数
           <input type="number" id="chunkChars" min="100" max="20000" step="100" placeholder="6000">
@@ -32,11 +49,65 @@
         <label>并发数
           <input type="number" id="concurrency" min="1" max="10" step="1" placeholder="3">
         </label>
+
+        <div class="section">
+          <h2>默认模式</h2>
+          <div class="radio-row">
+            <label class="radio"><input type="radio" name="defaultMode" value="original" checked> 原文</label>
+            <label class="radio"><input type="radio" name="defaultMode" value="translated"> 译文</label>
+            <label class="radio"><input type="radio" name="defaultMode" value="bilingual"> 双语</label>
+          </div>
+        </div>
+
+        <div class="section">
+          <h2>缓存</h2>
+          <label class="check"><input type="checkbox" id="keepCache" checked> 保留翻译缓存</label>
+          <label class="check"><input type="checkbox" id="autoApplyCache"> 打开网站自动应用缓存</label>
+        </div>
+
         <div class="actions">
           <button type="submit" class="btn primary">保存</button>
           <button type="button" id="btn-test" class="btn">测试连接</button>
         </div>
       </form>
+
+      <div class="section">
+        <h2>站点规则</h2>
+        <div class="row">
+          <input type="text" id="siteHost" placeholder="例：example.com">
+          <button type="button" id="btn-add-site" class="btn small">添加</button>
+        </div>
+        <div id="site-list" class="list"></div>
+      </div>
+
+      <div class="section">
+        <h2>页面缓存</h2>
+        <div class="row">
+          <button type="button" id="btn-clear-cache" class="btn small">清空全部</button>
+        </div>
+        <div id="cache-list" class="list"></div>
+      </div>
+
+      <div class="section">
+        <h2>缓存导入导出</h2>
+        <div class="row">
+          <button type="button" id="btn-export" class="btn small">导出缓存</button>
+          <button type="button" id="btn-import" class="btn small">导入缓存</button>
+          <input type="file" id="file-import" accept=".json,application/json" hidden>
+        </div>
+      </div>
+
+      <div class="section">
+        <h2>Token 用量</h2>
+        <div class="usage-grid">
+          <span class="usage-item"><b id="usage-prompt">0</b> prompt</span>
+          <span class="usage-item"><b id="usage-completion">0</b> completion</span>
+          <span class="usage-item"><b id="usage-total">0</b> total</span>
+          <span class="usage-item"><b id="usage-requests">0</b> requests</span>
+        </div>
+        <button type="button" id="btn-reset-usage" class="btn small full">重置用量</button>
+      </div>
+
       <div id="status" class="status"></div>
     </div>
     <aside class="right">
@@ -45,9 +116,14 @@
         <dt>API Key</dt><dd>DeepSeek 密钥：访问 platform.deepseek.com → API Keys 创建。仅保存在本地浏览器。</dd>
         <dt>Base URL</dt><dd>接口地址，默认 https://api.deepseek.com 即可；只有用自建代理/中转时才需要改。</dd>
         <dt>模型</dt><dd>DeepSeek 模型名，默认 deepseek-chat。点「获取模型」自动拉取你账号可用的模型列表，支持下拉选择或手动输入。</dd>
-        <dt>目标语言</dt><dd>网页文字要翻译成的语言，例如：简体中文、English、日本語。</dd>
+        <dt>目标语言</dt><dd>网页文字要翻译成的语言，例如：简体中文、English、日本語。输入框支持搜索与下拉选择。</dd>
         <dt>每批字符数</dt><dd>每个 API 请求携带的源文本字符数。越大请求次数越少但单次更慢；普通页面默认即可。</dd>
         <dt>并发数</dt><dd>同时发出的请求数量。越大越快但更容易触发限流，默认 3 已平衡速度与稳定。</dd>
+        <dt>默认模式</dt><dd>打开弹窗时默认高亮的显示模式：原文 / 译文 / 双语，与页面脚本配合切换展示。</dd>
+        <dt>保留缓存</dt><dd>翻译结果按页面保存到本地，重复打开同一页面可直接复用，节省 token。</dd>
+        <dt>自动应用</dt><dd>打开已缓存的网站时自动应用翻译缓存，无需手动点击翻译。</dd>
+        <dt>站点规则</dt><dd>按站点单独设置「自动应用」与「保留缓存」，可覆盖全局设置；修改后即时保存。</dd>
+        <dt>Token 用量</dt><dd>统计调用模型消耗的 prompt / completion / total 与请求次数，可随时重置。</dd>
       </dl>
     </aside>
   </div>

@@ -33,3 +33,13 @@
 - 设置页改左右布局: 左边表单，右边每个参数的用途说明(dl 卡片，窄屏自动堆叠)。
 - 模型字段改为 input+datalist(可下拉选也可手动输入)，新增「获取模型」按钮: 后台 GET {baseUrl}/models 拉取 DeepSeek 模型列表(新增 GET_MODELS 消息)。
 - e2e(真实 Chromium + mock /models): 右栏 6 项说明、模型列表填充、保存均通过。
+
+## v0.2.0 — 2026-08-08
+- 三种显示模式: 原文 / 译文 / 双语(原文+译文并存，译文浅色小字)，popup 一键切换并记忆默认。
+- 明显进度条: 右上角滑入横幅 + 进度条(按批次实时更新 TRANSLATE_PROGRESS)。
+- 页面翻译缓存: 按 origin+pathname 存 fingerprint(FNV-1a)，重新打开页面自动检测内容是否变更；未变更直接套用缓存，变更则自动重翻。设置页可管理(站点规则 autoApply/keepCache、缓存列表、清空、导出/导入 JSON 文件)；默认保留缓存。
+- Token 用量: 后台累计每次响应的 usage(prompt_tokens/completion_tokens/total_tokens)，设置页显示 + 重置，popup 显示总量。
+- 目标语言改为 input+datalist(预置 15 种语言，可搜索下拉)。
+- manifest 新增 content_scripts(document_idle 注入，支撑缓存自动应用)，version 0.2.0。
+- 审查修复: ① content 默认模式统一为 translated；② 站点键统一用 hostname(忽略端口)；③ token 字段映射修正(prompt_tokens 等)。
+- e2e(真实 Chromium): 自动翻译、三模式切换、进度条结构、缓存命中不调 API、内容变更自动重翻、token 累计、清缓存 全部通过；旧 e2e(翻译/还原/设置)无回归。
