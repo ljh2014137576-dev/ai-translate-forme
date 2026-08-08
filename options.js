@@ -564,7 +564,7 @@ function drawUsageChart() {
   const n = points.length;
 
   // Y 轴网格线与数值（4 条）
-  ctx.font = '11px Roboto, system-ui, sans-serif';
+  ctx.font = '11px "Segoe UI", "Microsoft YaHei", system-ui, sans-serif';
   for (let i = 0; i <= 4; i++) {
     const y = padT + plotH - (plotH * i) / 4;
     ctx.strokeStyle = 'rgba(0,0,0,.08)';
@@ -573,14 +573,14 @@ function drawUsageChart() {
     ctx.moveTo(padL, y);
     ctx.lineTo(cssW - padR, y);
     ctx.stroke();
-    ctx.fillStyle = '#5f6368';
+    ctx.fillStyle = '#616161';
     ctx.textAlign = 'right';
     ctx.textBaseline = 'middle';
     ctx.fillText(formatCompact((niceMax * i) / 4), padL - 6, y);
   }
 
   // X 轴标签：两端与中间
-  ctx.fillStyle = '#5f6368';
+  ctx.fillStyle = '#616161';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'top';
   const labelIdx = n > 1 ? [0, Math.floor((n - 1) / 2), n - 1] : [0];
@@ -596,7 +596,7 @@ function drawUsageChart() {
   ctx.beginPath();
   ctx.moveTo(xAt(0), yAt(points[0].value));
   for (let i = 1; i < n; i++) ctx.lineTo(xAt(i), yAt(points[i].value));
-  ctx.strokeStyle = '#1a73e8';
+  ctx.strokeStyle = '#0078d4';
   ctx.lineWidth = 2;
   ctx.lineJoin = 'round';
   ctx.stroke();
@@ -604,7 +604,7 @@ function drawUsageChart() {
   ctx.lineTo(xAt(n - 1), padT + plotH);
   ctx.lineTo(xAt(0), padT + plotH);
   ctx.closePath();
-  ctx.fillStyle = 'rgba(26, 115, 232, .12)';
+  ctx.fillStyle = 'rgba(0, 120, 212, .12)';
   ctx.fill();
 }
 

@@ -75,3 +75,10 @@
 - manifest: host_permissions 覆盖 8 家厂商域名，version 0.3.0。
 - 审查修复: gemini 分支误读 data.usage(实际为 usageMetadata)导致用量不累计 → 修正并兼容 openai/anthropic 的 usage。
 - e2e 五套全过: 多厂商(openai×2/anthropic/gemini 翻译 + usage 累计 + cost 直读)、三模式/缓存/进度、用量面板/费用、设置页、懒加载/语言跳过/缓存生命周期。
+
+## v0.3.1 — 2026-08-08
+- UI 改为 Windows 10 时代 Fluent Design(浅色): #f3f3f3 底 + 顶部淡蓝辉光、主色 #0078d4、Segoe UI、NavigationView 左侧导航(active 蓝色竖条)、Fluent toggle/radio、Win10 红/绿状态条。
+- 数据/文字面板使用**亚克力材质**: rgba(255,255,255,.62) + backdrop-filter blur(28px) saturate(160%) + 白描边 + 柔和阴影，列表行内用纯白防糊，不影响数据展示。
+- 背景新增**交互式 3D 数学雕塑**(sculpture.js，纯 canvas 伪 3D 无依赖): 150 块白色玻璃面板沿弹簧曲线流动(2 圈、twist、两端 scale 0→1→0 无缝循环)，透视投影 + 鼠标平滑旋转视角 + DPR 适配 + 页面隐藏暂停。
+- 弹窗同步 Fluent 浅色亚克力风格(纯 CSS 改动，JS 未动)。
+- 验证: 雕塑 canvas 实际渲染(1200x840 有 2 万+ 像素)、亚克力 blur 生效、5 套 e2e 全回归通过。
